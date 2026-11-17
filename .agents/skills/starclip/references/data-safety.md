@@ -36,6 +36,7 @@
 
 - 文字按完整原文去重（普通文字 / 链接 / 代码 / 颜色共用正文去重域），图片先以尺寸与 RGBA 的 SHA-256 筛选，再以完整 PNG / RGBA 确认去重；重复采集复用原 ID，更新 `updated_at`，保留原创建时间、星标、分组、永久保留与隐私保护，不新增一份历史。历史按 `updated_at DESC,id DESC` 排列，采集频次另计本地 new / repeat，不靠重复行统计。依据：`store/clips.rs::{insert_text,insert_image}`、`store/history.rs`、`images.rs::fingerprint_rgba` 及既有去重 / 图片迁移回归。
 - PNG 原图与最长边 320 px 的等比缩略图保存在 SQLite，列表只传元数据，可见后取图。0.2.5 新增一条图文 / 多图图集及九宫格：本地静态 PNG / JPEG 文件列表在符合图集条件时读取图片，混合、缺失或链接列表仍为文件引用；系统位图可带配文。具体格式与限制见 [图文组合](../../../../docs/image-collections.md)，入口 `desktop/media.rs`、`store/bundles.rs`、`ClipGallery.vue`。
+- 2026-11-12 采集排查：用户报告 Windows 0.2.6 从 QQ 输入框复制多图与文字后只看到文字。源码 `desktop/clipboard.rs::read_clipboard` 先文件列表、再位图、最后文字；位图不可用或转换失败时可进入文字分支，HTML 只附存、不提取图片，`store/clips.rs::capture_rich_text` 仍创建文字记录。尚未确认 QQ 实际格式，不能据截图归因为特定私有格式或声称已修复；待用原创固定图文取得格式与读取结果后做 Windows 原生验收，详见 [采集与复制](../../../../docs/image-collections.md#采集与复制)。本轮未读取真实剪贴板或改动采集实现。
 - 2026-11-03 严格复核已实现：SHA-256 只筛选候选，先比较完整 PNG，编码不同再有界解码比较全部 RGBA，含透明像素 RGB / Alpha；使用 Rust 字节比较，差异即结束，不随机取样。图片摘要索引不再唯一，模拟碰撞时另存记录、不覆盖原图；采集抑制与 JSON 导入同样复核，见 `images.rs`、`store/clips.rs`、`store/bundle_tests.rs`。图集共享资源、顺序与重复项、schema / JSON 5、复制格式及限制见 [图文组合](../../../../docs/image-collections.md)。
 - 单图限 1,600 万像素、任一边 16,000 px、PNG 20 MiB；系统解码发生在限额检查前，不能据此承诺进程内存峰值。
 - 自动容量/时间清理只处理未星标、未永久保留且未分组的普通历史；按 `updatedAt` 计时，重复捕获会续期。不限条数和不限天数必须同时设置才停止这两种淘汰，不等于任意规模性能已验证。
