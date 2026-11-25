@@ -14,12 +14,18 @@ function versionFromTag(tag) {
   if (typeof tag !== 'string' || !tag.startsWith('v')) throw new Error('Release tag 必须是 vX.Y.Z。');
   return stableVersion(tag.slice(1));
 }
+function matchesReleaseUrl(actual, suffix) {
+  if (typeof actual !== 'string' || !actual.startsWith('https://github.com/')) return false;
+  const rest = actual.slice('https://github.com/'.length);
+  return rest.slice(0, repository.length).toLowerCase() === repository.toLowerCase()
+    && rest.slice(repository.length) === `/releases${suffix}`;
+}
 function assetSnapshot(release, name) {
   const assets = release.assets?.filter(asset => asset.name === name);
   if (!assets || assets.length !== 1) throw new Error(`${name} 必须存在且唯一。`);
-  const asset = assets[0], url = `${releaseRoot}/download/${release.tag_name}/${name}`;
+  const asset = assets[0], suffix = `/download/${release.tag_name}/${name}`, url = `${releaseRoot}${suffix}`;
   if (!positiveInteger(asset.id) || !positiveInteger(asset.size) || asset.state !== 'uploaded'
-      || asset.browser_download_url !== url || !timestamp(asset.updated_at)) throw new Error(`${name} 资产元数据无效。`);
+      || !matchesReleaseUrl(asset.browser_download_url, suffix) || !timestamp(asset.updated_at)) throw new Error(`${name} 资产元数据无效。`);
   if (asset.digest != null && !/^sha256:[a-f0-9]{64}$/.test(asset.digest)) throw new Error(`${name} 的 GitHub digest 无效。`);
   return { id: asset.id, name, size: asset.size, url, digest: asset.digest ?? null, updatedAt: asset.updated_at };
 }
@@ -29,7 +35,7 @@ export function prepareRelease(release, latest) {
   if (release.draft === true || release.prerelease === true) return { skip: true, reason: '草稿或预发布版不更新稳定 Cask。' };
   const version = versionFromTag(release.tag_name), tag = `v${version}`;
   if (release.draft !== false || release.prerelease !== false || !positiveInteger(release.id)
-      || !timestamp(release.published_at) || release.html_url !== `${releaseRoot}/tag/${tag}`) throw new Error('Release 必须是指定仓库已公开的稳定版本。');
+      || !timestamp(release.published_at) || !matchesReleaseUrl(release.html_url, `/tag/${tag}`)) throw new Error('Release 必须是指定仓库已公开的稳定版本。');
   if (!latest || release.id !== latest.id || tag !== latest.tag_name) return { skip: true, reason: '只同步当前最新稳定 Release。' };
   if (latest.draft !== false || latest.prerelease !== false || latest.html_url !== release.html_url) throw new Error('最新稳定 Release 元数据不一致。');
   const dmgName = `Starclip_${version}_aarch64.dmg`;

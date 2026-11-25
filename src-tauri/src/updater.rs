@@ -375,10 +375,18 @@ fn validate_expected_version(actual: &str, expected: &str) -> Result<()> {
 }
 fn validate_download_url(url: &str) -> Result<()> {
     // The signed bytes remain authoritative; restrict metadata's download origin too.
-    // This build accepts only StarDreamTech/starclip. Clients through 0.2.5 still
-    // require https://github.com/cpython666/starclip/releases/download/. That prefix
+    // This build accepts only StarDreamTech/starclip (matching GitHub's case-insensitive
+    // repository slug). Clients through 0.2.5 still require
+    // https://github.com/cpython666/starclip/releases/download/. That prefix
     // belongs on the separately mirrored compatibility manifest, not this repository's latest.json.
-    if url.starts_with("https://github.com/StarDreamTech/starclip/releases/download/") {
+    const REPO: &str = "StarDreamTech/starclip";
+    let allowed = url
+        .strip_prefix("https://github.com/")
+        .and_then(|value| value.get(..REPO.len()).zip(value.get(REPO.len()..)))
+        .is_some_and(|(repo, tail)| {
+            repo.eq_ignore_ascii_case(REPO) && tail.starts_with("/releases/download/")
+        });
+    if allowed {
         Ok(())
     } else {
         Err("更新安装包地址不属于星笺正式发布源，已停止更新。".into())
@@ -455,10 +463,15 @@ mod tests {
             "https://github.com/StarDreamTech/starclip/releases/download/v0.3.0/app.tar.gz"
         )
         .is_ok());
+        assert!(validate_download_url(
+            "https://github.com/StarDreamTech/StarClip/releases/download/v0.3.0/app.tar.gz"
+        )
+        .is_ok());
         for url in [
             "http://github.com/StarDreamTech/starclip/releases/download/a",
             "https://github.com.evil/StarDreamTech/starclip/releases/download/a",
             "https://github.com/other/starclip/releases/download/a",
+            "https://github.com/StarDreamTech/starclip/RELEASES/download/a",
         ] {
             assert!(validate_download_url(url).is_err());
         }

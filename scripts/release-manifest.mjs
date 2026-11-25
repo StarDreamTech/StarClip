@@ -127,6 +127,19 @@ export async function assembleRelease({ artifactsDir, outputDir, version, tag, r
   return manifest;
 }
 
+export function resolveConfiguredRepository(repository, endpoints) {
+  if (typeof repository !== 'string' || !/^[A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+$/.test(repository)) {
+    throw new Error('GitHub 仓库名无效。');
+  }
+  const target = repository.toLowerCase();
+  for (const endpoint of Array.isArray(endpoints) ? endpoints : []) {
+    if (typeof endpoint !== 'string') continue;
+    const match = endpoint.match(/^https:\/\/github\.com\/([A-Za-z0-9_.-]+\/[A-Za-z0-9_.-]+)\/releases\/latest\/download\/latest\.json$/);
+    if (match && match[1].toLowerCase() === target) return match[1];
+  }
+  throw new Error('仓库与应用内置更新地址不一致。');
+}
+
 if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url)) {
   try {
     const [command, ...args] = process.argv.slice(2);
@@ -136,10 +149,9 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
       const [artifactsDir, outputDir, repository, tag] = args;
       const version = await checkVersion(projectRoot, tag);
       const config = JSON.parse(await readFile(join(projectRoot, 'src-tauri/tauri.conf.json'), 'utf8'));
-      const endpoint = `https://github.com/${repository}/releases/latest/download/latest.json`;
-      if (!config.plugins?.updater?.endpoints?.includes(endpoint)) throw new Error('仓库与应用内置更新地址不一致。');
+      const canonicalRepository = resolveConfiguredRepository(repository, config.plugins?.updater?.endpoints);
       const notes = releaseNotes(await readFile(join(projectRoot, 'CHANGELOG.md'), 'utf8'), version);
-      await assembleRelease({ artifactsDir, outputDir, repository, tag, version, pubkey: config.plugins.updater.pubkey, notes });
+      await assembleRelease({ artifactsDir, outputDir, repository: canonicalRepository, tag, version, pubkey: config.plugins.updater.pubkey, notes });
       console.log(`已验证并汇总 ${tag} 的两个平台；等待创建草稿。`);
     } else throw new Error('用法：release-manifest.mjs collect <bundle目录> <输出目录> <平台> | assemble <产物目录> <输出目录> <owner/repo> <tag>');
   } catch (error) { console.error(error.message); process.exitCode = 1; }
