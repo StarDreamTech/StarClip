@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import type { Clip } from '../types'
-import { ref, watch } from 'vue'
+import { onBeforeUnmount, ref, watch } from 'vue'
 import { api, isDesktop } from '../api'
 import { protectedClip } from '../privacy'
 import { errorText, t } from '../i18n'
@@ -11,43 +11,49 @@ const working = ref(false), message = ref(''), failed = ref(false)
 const needsConsent = ref(false), consent = ref(false), token = ref('')
 const caption = ref(''), title = ref('')
 let generation = 0
+let disposed = false
+onBeforeUnmount(() => { disposed = true; ++generation; emit('busy', false) })
 watch(() => props.ids, () => { ++generation; token.value = ''; message.value = ''; needsConsent.value = false; consent.value = false }, { flush: 'sync' })
 watch(consent, () => { token.value = '' })
 async function act(action: 'copy' | 'export' | 'prepare' | 'collect') {
-  if (working.value || props.disabled || !props.ids.length) return
+  if (disposed || working.value || props.disabled || !props.ids.length) return
   const request = generation, ids = [...props.ids]
   working.value = true; emit('busy', true); message.value = ''; failed.value = false
   try {
     if (!isDesktop) throw new Error(t('批量图片传出请使用桌面版。'))
     const clips = await api.getClips(ids)
-    if (request !== generation) return
+    if (disposed || request !== generation) return
     if (clips.length !== ids.length || clips.some(c => !['image','bundle'].includes(c.kind))) throw new Error(t('所选图片已变化，请清空后重新选择。'))
     needsConsent.value = clips.some(protectedClip)
     if (needsConsent.value && !consent.value) return
     const allowPrivate = needsConsent.value && consent.value
     if (action === 'collect') {
       const clip = await api.createBundle(ids, caption.value, title.value, allowPrivate)
-      if (request === generation) emit('created', clip)
+      if (!disposed && request === generation) emit('created', clip)
     } else if (action === 'prepare') {
       const prepared = await api.prepareImageTransfer(ids, allowPrivate)
-      if (request === generation) { token.value = prepared; message.value = t('已准备好，按住「拖出图片」移到桌面或文件夹。') }
+      if (!disposed && request === generation) { token.value = prepared; message.value = t('已准备好，按住「拖出图片」移到桌面或文件夹。') }
     } else if (action === 'copy') {
       await api.copyImageFiles(ids, allowPrivate)
-      message.value = t('已复制为独立 PNG 文件，可粘贴到文件夹；其他应用的接收方式由其自身决定。')
+      if (!disposed && request === generation) message.value = t('已复制为独立 PNG 文件，可粘贴到文件夹；其他应用的接收方式由其自身决定。')
     } else {
       const path = await api.exportImageFiles(ids, allowPrivate)
-      message.value = path ? t('图片已导出到：{path}', { path }) : t('已取消导出。')
+      if (!disposed && request === generation) message.value = path ? t('图片已导出到：{path}', { path }) : t('已取消导出。')
     }
-  } catch (error) { if (request === generation) { message.value = errorText(error); failed.value = true; token.value = '' } }
-  finally { working.value = false; emit('busy', false) }
+  } catch (error) { if (!disposed && request === generation) { message.value = errorText(error); failed.value = true; token.value = '' } }
+  finally { if (!disposed) { working.value = false; emit('busy', false) } }
 }
 async function drag(event: MouseEvent) {
-  if (event.button !== 0 || !token.value || working.value || props.disabled) return
+  if (disposed || event.button !== 0 || !token.value || working.value || props.disabled) return
   event.preventDefault()
+  const request = generation
   working.value = true; emit('busy', true); failed.value = false
-  try { message.value = await api.dragImageFiles(token.value) ? t('拖出已交给目标应用，请检查文件是否已保存。') : t('已取消拖出。') }
-  catch (error) { message.value = errorText(error); failed.value = true; token.value = '' }
-  finally { working.value = false; emit('busy', false) }
+  try {
+    const dropped = await api.dragImageFiles(token.value)
+    if (!disposed && request === generation) message.value = dropped ? t('拖出已交给目标应用，请检查文件是否已保存。') : t('已取消拖出。')
+  }
+  catch (error) { if (!disposed && request === generation) { message.value = errorText(error); failed.value = true; token.value = '' } }
+  finally { if (!disposed) { working.value = false; emit('busy', false) } }
 }
 </script>
 

@@ -128,51 +128,70 @@ pub(super) async fn drag_image_files(
         batch.retained = true;
         (batch.paths.clone(), batch.preview.clone())
     };
-    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
-    app.run_on_main_thread(move || {
-        // An IPC can arrive after a quick mouse release. AppKit would otherwise
-        // start a session with no button held and wait for an unrelated click.
-        #[cfg(target_os = "macos")]
-        if objc2_app_kit::NSEvent::pressedMouseButtons() & 1 == 0 {
-            let _ = sender.try_send(Err("请按住「拖出图片」稍候，再移到目标文件夹。".into()));
-            return;
+    let release_retained = |context: &Context, token: &str| {
+        if let Ok(mut prepared) = context.image_transfer.lock() {
+            if let Some(batch) = prepared.as_mut().filter(|b| b.token == token) {
+                batch.retained = false;
+            }
         }
-        let callback = sender.clone();
-        #[cfg(target_os = "linux")]
-        let native_window = window.gtk_window();
-        #[cfg(target_os = "linux")]
-        let native_window = match native_window {
-            Ok(ref w) => w,
-            Err(_) => {
-                let _ = sender.try_send(Err("无法开始拖出，请使用「导出到文件夹」。".into()));
+    };
+    let (sender, receiver) = std::sync::mpsc::sync_channel(1);
+    if app
+        .run_on_main_thread(move || {
+            // An IPC can arrive after a quick mouse release. AppKit would otherwise
+            // start a session with no button held and wait for an unrelated click.
+            #[cfg(target_os = "macos")]
+            if objc2_app_kit::NSEvent::pressedMouseButtons() & 1 == 0 {
+                let _ = sender.try_send(Err("请按住「拖出图片」稍候，再移到目标文件夹。".into()));
                 return;
             }
-        };
-        #[cfg(not(target_os = "linux"))]
-        let native_window = &window;
-        if drag::start_drag(
-            native_window,
-            drag::DragItem::Files(paths),
-            drag::Image::Raw(preview),
-            move |result, _| {
-                let _ = callback.try_send(Ok(matches!(result, drag::DragResult::Dropped)));
-            },
-            drag::Options {
-                mode: drag::DragMode::Copy,
-                ..Default::default()
-            },
-        )
+            let callback = sender.clone();
+            #[cfg(target_os = "linux")]
+            let native_window = window.gtk_window();
+            #[cfg(target_os = "linux")]
+            let native_window = match native_window {
+                Ok(ref w) => w,
+                Err(_) => {
+                    let _ = sender.try_send(Err("无法开始拖出，请使用「导出到文件夹」。".into()));
+                    return;
+                }
+            };
+            #[cfg(not(target_os = "linux"))]
+            let native_window = &window;
+            if drag::start_drag(
+                native_window,
+                drag::DragItem::Files(paths),
+                drag::Image::Raw(preview),
+                move |result, _| {
+                    let _ = callback.try_send(Ok(matches!(result, drag::DragResult::Dropped)));
+                },
+                drag::Options {
+                    mode: drag::DragMode::Copy,
+                    ..Default::default()
+                },
+            )
+            .is_err()
+            {
+                let _ = sender.try_send(Err("无法开始拖出，请使用「导出到文件夹」。".into()));
+            }
+        })
         .is_err()
-        {
-            let _ = sender.try_send(Err("无法开始拖出，请使用「导出到文件夹」。".into()));
-        }
-    })
-    .map_err(|_| "无法开始拖出，请使用「导出到文件夹」。")?;
-    tauri::async_runtime::spawn_blocking(move || {
+    {
+        release_retained(&context, &token);
+        return Err("无法开始拖出，请使用「导出到文件夹」。".into());
+    }
+    let result = match tauri::async_runtime::spawn_blocking(move || {
         receiver
             .recv_timeout(Duration::from_secs(300))
             .map_err(|_| "拖出任务已中断。".to_string())?
     })
     .await
-    .map_err(|_| "拖出任务已中断。".to_string())?
+    {
+        Ok(result) => result,
+        Err(_) => Err("拖出任务已中断。".to_string()),
+    };
+    if result.is_err() {
+        release_retained(&context, &token);
+    }
+    result
 }

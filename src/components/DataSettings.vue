@@ -1,6 +1,6 @@
 <script setup lang="ts">
 import { errorText, formatNumber, t } from '../i18n';
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { api, isDesktop } from '../api';
 import type { DataDirectoryMode, DataDirectoryPlan, DataLocation } from '../types';
 import Icon from './Icon.vue';
@@ -12,11 +12,13 @@ const operation = ref<'load' | 'choose' | 'open' | 'apply' | 'restart' | null>(n
 const error = ref('');
 const notice = ref('');
 const confirmation = ref<HTMLElement>();
+let disposed = false;
 const pending = computed(() => location.value?.pendingPath || null);
 const blocked = computed(() => operation.value !== null || pending.value !== null);
 const canRelease = computed(() => (!isDesktop || !!location.value) && !blocked.value && !plan.value);
 const warnings = computed(() => [...new Set([...(location.value?.warnings || []), ...(plan.value?.warnings || [])])]);
-watch(blocked, value => emit('busy', value), { immediate: true, flush: 'sync' });
+watch(blocked, value => { if (!disposed) emit('busy', value); }, { immediate: true, flush: 'sync' });
+onBeforeUnmount(() => { disposed = true; emit('busy', false); });
 
 function message(reason: unknown) { return errorText(reason); }
 function bytes(value: number) {
@@ -28,12 +30,17 @@ function bytes(value: number) {
   return `${formatNumber(amount, { maximumFractionDigits: 2 })} ${units[unit]}`;
 }
 async function perform(name: NonNullable<typeof operation.value>, action: () => Promise<void>) {
-  if (!isDesktop || operation.value || (pending.value && name !== 'restart')) return;
+  if (disposed || !isDesktop || operation.value || (pending.value && name !== 'restart')) return;
   operation.value = name; error.value = ''; notice.value = '';
-  try { await action(); } catch (reason) { error.value = message(reason); } finally { operation.value = null; }
+  try { await action(); }
+  catch (reason) { if (!disposed) error.value = message(reason); }
+  finally { if (!disposed) operation.value = null; }
 }
 function refresh() {
-  return perform('load', async () => { location.value = await api.getDataLocation(); });
+  return perform('load', async () => {
+    const next = await api.getDataLocation();
+    if (!disposed) location.value = next;
+  });
 }
 defineExpose({ refresh, canRelease });
 function openFolder() {
@@ -43,9 +50,11 @@ function choose(mode: DataDirectoryMode) {
   return perform('choose', async () => {
     plan.value = null;
     const selected = await api.chooseDataDirectory(mode);
+    if (disposed) return;
     if (!selected) { notice.value = t('已取消选择，数据位置未更改。'); return; }
     plan.value = selected;
-    await nextTick(); confirmation.value?.focus();
+    await nextTick();
+    if (!disposed) confirmation.value?.focus();
   });
 }
 function cancel() {
@@ -64,13 +73,19 @@ function apply() {
   if (!approved) return;
   return perform('apply', async () => {
     try {
-      location.value = await api.applyDataDirectory(approved.mode, approved.targetPath);
+      const next = await api.applyDataDirectory(approved.mode, approved.targetPath);
+      if (disposed) return;
+      location.value = next;
     } catch (reason) {
       // A failed response must not let the UI continue writing if the backend already switched.
-      try { location.value = await api.getDataLocation(); } catch { /* Keep the original actionable error. */ }
-      if (pending.value) plan.value = null;
+      try {
+        const next = await api.getDataLocation();
+        if (!disposed) location.value = next;
+      } catch { /* Keep the original actionable error. */ }
+      if (!disposed && pending.value) plan.value = null;
       throw reason;
     }
+    if (disposed) return;
     plan.value = null;
     notice.value = t('数据位置已切换，正在重启星笺…');
     operation.value = 'restart';

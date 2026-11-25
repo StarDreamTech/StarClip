@@ -67,3 +67,64 @@ test('fixed widths are bounded and soft wrapping cannot allocate an oversized 2x
   assert.throws(() => codeCardLayout(manyLines, { ...style, fixedWidth: 960 }, measure), /尺寸过大/);
   assert.throws(() => codeCardLayout('wide', defaultCodeCardStyle, () => 100000), /尺寸过大/);
 });
+
+test('renderCodeCard uses the provided localized fallback title when title is empty', async () => {
+  const { renderCodeCard } = await import('../src/code-card.ts');
+  const drawnText: string[] = [];
+  const fakeContext = {
+    font: '',
+    fillStyle: '',
+    strokeStyle: '',
+    lineWidth: 1,
+    globalAlpha: 1,
+    textAlign: 'left',
+    textBaseline: 'alphabetic',
+    shadowColor: '',
+    shadowBlur: 0,
+    shadowOffsetY: 0,
+    scale() {},
+    measureText: (value: string) => ({ width: value.length * 8 }),
+    createLinearGradient: () => ({ addColorStop() {} }),
+    fillRect() {},
+    beginPath() {},
+    roundRect() {},
+    rect() {},
+    arc() {},
+    moveTo() {},
+    lineTo() {},
+    fill() {},
+    stroke() {},
+    save() {},
+    restore() {},
+    clip() {},
+    fillText(value: string) { drawnText.push(value); },
+  };
+  const savedDoc = Object.getOwnPropertyDescriptor(globalThis, 'document');
+  const savedParser = Object.getOwnPropertyDescriptor(globalThis, 'DOMParser');
+  const savedNode = Object.getOwnPropertyDescriptor(globalThis, 'Node');
+  Object.defineProperty(globalThis, 'document', {
+    configurable: true,
+    value: {
+      createElement: () => ({ width: 0, height: 0, getContext: () => fakeContext, toDataURL: () => 'data:image/png;base64,AA==' }),
+    },
+  });
+  Object.defineProperty(globalThis, 'Node', { configurable: true, value: { TEXT_NODE: 3 } });
+  Object.defineProperty(globalThis, 'DOMParser', {
+    configurable: true,
+    value: class {
+      parseFromString() {
+        return { querySelector: () => ({ nodeType: 1, classList: [], childNodes: [{ nodeType: 3, textContent: 'const x = 1;' }] }) };
+      }
+    },
+  });
+  try {
+    renderCodeCard('', 'const x = 1;', 'javascript', 'const x = 1;', { ...defaultCodeCardStyle, watermark: 'Starclip' }, 'A Page of Code');
+    assert.ok(drawnText.includes('A Page of Code'));
+    assert.ok(!drawnText.includes('一页星码'));
+  } finally {
+    if (savedDoc) Object.defineProperty(globalThis, 'document', savedDoc); else Reflect.deleteProperty(globalThis, 'document');
+    if (savedParser) Object.defineProperty(globalThis, 'DOMParser', savedParser); else Reflect.deleteProperty(globalThis, 'DOMParser');
+    if (savedNode) Object.defineProperty(globalThis, 'Node', savedNode); else Reflect.deleteProperty(globalThis, 'Node');
+  }
+});
+

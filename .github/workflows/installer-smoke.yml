@@ -46,12 +46,12 @@ jobs:
         uses: actions/github-script@v7
         with:
           script: |
-            if (context.repo.owner !== 'StarDreamTech' || context.repo.repo !== 'starclip') throw new Error('Baseline is pinned to the original repository.');
+            if (context.repo.owner.toLowerCase() !== 'stardreamtech' || context.repo.repo.toLowerCase() !== 'starclip') throw new Error('Baseline is pinned to the original repository.');
             const runId = 40356060862, artifactId = 12665574702;
             const revision = '22181c0046b1265908334bc2efd31c0bcaa57110';
             const run = (await github.rest.actions.getWorkflowRun({ ...context.repo, run_id: runId })).data;
             const artifact = (await github.rest.actions.getArtifact({ ...context.repo, artifact_id: artifactId })).data;
-            if (run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== revision || run.head_repository?.full_name !== 'StarDreamTech/starclip') throw new Error('Baseline build identity or result does not match.');
+            if (run.status !== 'completed' || run.conclusion !== 'success' || run.head_sha !== revision || run.head_repository?.full_name?.toLowerCase() !== 'stardreamtech/starclip') throw new Error('Baseline build identity or result does not match.');
             if (artifact.id !== artifactId || artifact.name !== 'starclip-windows-x64' || artifact.expired || artifact.workflow_run?.id !== runId || artifact.workflow_run?.head_sha !== revision) throw new Error('Pinned Windows baseline artifact is unavailable or mismatched.');
       - uses: actions/download-artifact@v4
         if: matrix.scenario == 'upgrade'

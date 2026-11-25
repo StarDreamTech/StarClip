@@ -42,6 +42,12 @@ test('Homebrew 只准备指定仓库的最新公开稳定版本，草稿、预�
   assert.equal(prepareRelease(release, null).skip, true);
   assert.equal(prepareRelease(release, { ...release, id: 999 }).skip, true);
   assert.equal(prepareRelease(release, { ...release, tag_name: 'v0.3.0' }).skip, true);
+  const renamed = structuredClone(release);
+  renamed.html_url = renamed.html_url.replace('StarDreamTech/starclip', 'StarDreamTech/StarClip');
+  for (const item of renamed.assets) item.browser_download_url = item.browser_download_url.replace('StarDreamTech/starclip', 'StarDreamTech/StarClip');
+  const renamedPlan = prepareRelease(renamed, renamed);
+  assert.equal(renamedPlan.skip, false);
+  assert.equal(renamedPlan.dmg.url, 'https://github.com/StarDreamTech/starclip/releases/download/v0.2.0/Starclip_0.2.0_aarch64.dmg');
 });
 
 test('Homebrew 拒绝错误仓库、注入 tag、缺失或重复及未完成的资产', () => {

@@ -96,14 +96,27 @@ export function t(source: string, params?: Record<string, string | number>): str
 
 export function hasTranslation(source: string): boolean { return Object.prototype.hasOwnProperty.call(catalog, source) }
 
-export function errorText(error: unknown): string {
-  const raw = error instanceof Error ? error.message : String(error)
-  if (locale.value === 'zh-CN') return raw
+function translateNativePattern(raw: string, depth = 0): string | null {
+  if (depth >= 4) return null
   const exact = catalog[raw]
   if (exact) return exact
   for (const [pattern, replacement] of backendPatterns) {
-    if (pattern.test(raw)) return raw.replace(pattern, replacement)
+    const match = pattern.exec(raw)
+    if (match) {
+      return replacement.replace(/\$(\d+)/g, (_, index: string) => {
+        const part = match[Number(index)] ?? ''
+        return /[\u4e00-\u9fff]/.test(part) ? (translateNativePattern(part, depth + 1) ?? part) : part
+      })
+    }
   }
+  return null
+}
+
+export function errorText(error: unknown): string {
+  const raw = error instanceof Error ? error.message : String(error)
+  if (locale.value === 'zh-CN') return raw
+  const translated = translateNativePattern(raw)
+  if (translated !== null) return translated
   if (/[\u4e00-\u9fff]/.test(raw)) {
     // Native diagnostics are translated where they are common. For the long
     // tail, keep the English UI readable and leave the original for support.

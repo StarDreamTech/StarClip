@@ -44,10 +44,10 @@ function discardPreview() {
   if (preview.value) void api.cancelCleanup(preview.value.token).catch(() => {});
   preview.value = null;
 }
-onBeforeUnmount(() => { disposed = true; discardPreview(); });
+onBeforeUnmount(() => { disposed = true; discardPreview(); emit('busy', false); });
 const items = computed(() => preview.value?.items.slice(0, 100) || []);
 const canExecute = computed(() => !busy.value && !validation.value && confirmed.value && !!preview.value && preparedKey === filterKey.value && (preview.value.matchedCount > 0 || compact.value));
-watch(busy, value => emit('busy', value), { immediate: true, flush: 'sync' });
+watch(busy, value => { if (!disposed) emit('busy', value); }, { immediate: true, flush: 'sync' });
 watch(filterKey, () => {
   if (preview.value || operation.value === 'preview') stale.value = t('筛选条件已改变，请重新预览。');
   discardPreview(); preparedKey = ''; confirmed.value = false; result.value = null; error.value = '';
@@ -71,30 +71,48 @@ function preset(value: 'large' | 'old' | 'all') {
   kind.value = 'all'; includeGrouped.value = false;
 }
 async function requestPreview() {
-  if (busy.value || validation.value) return;
+  if (disposed || busy.value || validation.value) return;
   const key = filterKey.value, selected = { ...filter.value };
   operation.value = 'preview'; discardPreview(); result.value = null; confirmed.value = false; preparedKey = ''; error.value = ''; stale.value = '';
   try {
     const value = await api.previewCleanup(selected);
-    if (disposed || key !== filterKey.value) { void api.cancelCleanup(value.token).catch(() => {}); stale.value = t('筛选条件已改变，请重新预览。'); return; }
+    if (disposed || key !== filterKey.value) {
+      void api.cancelCleanup(value.token).catch(() => {});
+      if (!disposed) stale.value = t('筛选条件已改变，请重新预览。');
+      return;
+    }
     preview.value = value; preparedKey = key;
-    await nextTick(); previewRegion.value?.focus();
-  } catch (reason) { error.value = message(reason); stale.value = t('尚未取得有效预览，请检查条件后重新预览。'); }
-  finally { operation.value = null; }
+    await nextTick();
+    if (!disposed) previewRegion.value?.focus();
+  } catch (reason) {
+    if (!disposed) {
+      error.value = message(reason);
+      stale.value = t('尚未取得有效预览，请检查条件后重新预览。');
+    }
+  } finally {
+    if (!disposed) operation.value = null;
+  }
 }
 async function execute() {
-  if (!canExecute.value || !preview.value) return;
+  if (disposed || !canExecute.value || !preview.value) return;
   const token = preview.value.token, shouldCompact = compact.value;
   operation.value = 'execute'; error.value = ''; stale.value = ''; result.value = null;
   try {
-    result.value = await api.executeCleanup(token, shouldCompact);
-    await nextTick(); resultRegion.value?.focus();
+    const executed = await api.executeCleanup(token, shouldCompact);
+    if (disposed) return;
+    result.value = executed;
+    await nextTick();
+    if (!disposed) resultRegion.value?.focus();
   } catch (reason) {
-    error.value = message(reason);
-    stale.value = t('请重新预览，核对当前记录后再操作。');
+    if (!disposed) {
+      error.value = message(reason);
+      stale.value = t('请重新预览，核对当前记录后再操作。');
+    }
   } finally {
-    preview.value = null; preparedKey = ''; confirmed.value = false;
-    emit('changed'); operation.value = null;
+    if (!disposed) {
+      preview.value = null; preparedKey = ''; confirmed.value = false;
+      emit('changed'); operation.value = null;
+    }
   }
 }
 </script>
@@ -154,7 +172,7 @@ async function execute() {
       <h3><Icon :name="result.warning ? 'alert' : 'check'" :size="16" />{{ t('本次整理结果') }}</h3>
       <dl class="cleanup-result-metrics"><div><dt>{{ t('已删除记录') }}</dt><dd>{{ result.deletedCount }} {{ t('条') }}</dd></div><div><dt>{{ t('删除的内容') }}</dt><dd>{{ bytes(result.contentBytes) }}</dd></div><div><dt>{{ t('数据库文件实际缩减') }}</dt><dd>{{ bytes(result.releasedBytes) }}</dd></div></dl>
       <p class="cleanup-small">{{ t('数据库文件：') }}{{ bytes(result.databaseBytesBefore) }} → {{ bytes(result.databaseBytesAfter) }}{{ !isDesktop ? t(' · 浏览器没有实际文件') : '' }}</p>
-      <p v-if="result.warning" class="cleanup-warning" role="status">{{ t(result.warning) }}<br />{{ t('以上删除数量已生效。') }}<span v-if="isDesktop">{{ t('可重新预览后再决定是否整理数据库。') }}</span></p>
+      <p v-if="result.warning" class="cleanup-warning" role="status">{{ errorText(result.warning) }}<br />{{ t('以上删除数量已生效。') }}<span v-if="isDesktop">{{ t('可重新预览后再决定是否整理数据库。') }}</span></p>
       <p v-else class="cleanup-success" role="status">{{ result.deletedCount ? t('选中的记录已清理，保护记录仍保留。') : t('未删除任何记录。') }}</p>
     </section>
     <p v-if="error" class="cleanup-error" role="alert">{{ error }}</p>

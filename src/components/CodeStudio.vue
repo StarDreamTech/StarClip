@@ -67,7 +67,7 @@ function makePreview() {
   clearTimeout(previewTimer);
   if (mode.value !== 'code') return null;
   try {
-    const result = renderCodeCard(title.value, content.value, language.value, highlighted.value, style);
+    const result = renderCodeCard(title.value, content.value, language.value, highlighted.value, style, t('一页星码'));
     preview.value = result; previewError.value = '';
     return result;
   } catch (e) { preview.value = null; previewError.value = errorText(e); return null; }
@@ -106,6 +106,9 @@ function exportImage() {
     if (await api.saveExport(image.url.split(',')[1]!, 'png', `${safeFilename(title.value)}.png`)) notice.value = t('星码卡已导出，与当前预览一致');
   });
 }
+function resetStyle() {
+  Object.assign(style, { ...defaultCodeCardStyle, watermark: t(defaultCodeCardStyle.watermark) });
+}
 </script>
 
 <template>
@@ -119,11 +122,11 @@ function exportImage() {
         <section class="studio-preview"><div class="studio-panel-label">{{ t('导出效果预览') }} <span v-if="preview">{{ preview.width }} × {{ preview.height }}</span></div><div class="canvas-preview"><img v-if="preview" :src="preview.url" :alt="t('{title}，星码卡导出预览', { title })" /><div v-else class="preview-placeholder"><span>✦</span><p>{{ previewError || t('正在点亮这张卡片…') }}</p></div></div><p class="preview-note">{{ style.widthMode === 'fixed' ? t('长行软换行，原文与行号保留 · PNG 以 2 倍分辨率生成') : t('预览即导出 · PNG 以 2 倍分辨率生成') }}</p></section>
       </div>
       <MarkdownPanel v-else-if="mode === 'markdown'" v-model:text="content" :title="title" @busy="busy = $event" />
-      <HandwritingPanel v-else :text="content" :title="title">
+      <HandwritingPanel v-else :text="content" :title="title" @busy="busy = $event">
         <template #editor><section class="studio-editor"><div class="studio-panel-label">{{ t('纸笺正文') }}<span>{{ content.split('\n').length }} {{ t('行 ·') }} {{ [...content].length }} {{ t('字符') }}</span></div><textarea v-model="content" :aria-label="t('纸笺正文')" class="handwriting-text" spellcheck="false" autocomplete="off" autocapitalize="off" /><p class="editor-note">{{ t('切换卡片类型不会改写正文，也不会保存为代码。') }}</p></section></template>
       </HandwritingPanel>
       <section v-if="mode === 'code'" class="card-controls" :aria-label="t('代码卡片样式')">
-        <div class="control-heading"><h3>{{ t('装点这张卡片') }}</h3><button class="reset-style" @click="Object.assign(style, defaultCodeCardStyle)">{{ t('恢复默认') }}</button></div>
+        <div class="control-heading"><h3>{{ t('装点这张卡片') }}</h3><button class="reset-style" @click="resetStyle">{{ t('恢复默认') }}</button></div>
         <div class="control-grid">
           <div class="control-field"><span>{{ t('代码配色') }}</span><UiSelect v-model="style.codeTheme" :options="codeThemeOptions" :label="t('代码配色')" :disabled="busy" /></div>
           <div class="control-field"><span>{{ t('外层背景') }}</span><UiSelect v-model="style.palette" :options="paletteOptions" :label="t('卡片背景')" :disabled="busy" /></div>

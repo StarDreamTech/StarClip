@@ -69,7 +69,7 @@ function fitText(text: string, width: number, measure: (text: string) => number)
   return measure('…') <= width ? parts.join('') + '…' : '';
 }
 
-export function renderCodeCard(title: string, content: string, language: string, highlighted: string, style: CodeCardStyle) {
+export function renderCodeCard(title: string, content: string, language: string, highlighted: string, style: CodeCardStyle, fallbackTitle = '一页星码') {
   const canvas = document.createElement('canvas');
   const context = canvas.getContext('2d');
   if (!context) throw new Error('当前环境无法生成卡片预览');
@@ -118,7 +118,7 @@ export function renderCodeCard(title: string, content: string, language: string,
   context.font = '12px -apple-system, "PingFang SC", sans-serif';
   const languageWidth = context.measureText(language).width;
   const titleWidth = px + cardWidth - 46 - languageWidth - titleX;
-  const shortTitle = fitText(title.replace(/[\r\n]+/g, ' ').trim() || '一页星码', titleWidth, text => context.measureText(text).width);
+  const shortTitle = fitText(title.replace(/[\r\n]+/g, ' ').trim() || fallbackTitle, titleWidth, text => context.measureText(text).width);
   context.fillStyle = theme.title; context.fillText(shortTitle, titleX, headerY);
   context.fillStyle = theme.muted; context.textAlign = 'right'; context.fillText(language, px + cardWidth - 24, headerY); context.textAlign = 'left';
   context.strokeStyle = theme.border; context.beginPath(); context.moveTo(px + 1, py + 44); context.lineTo(px + cardWidth - 1, py + 44); context.stroke();

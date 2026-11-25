@@ -23,6 +23,7 @@ const activeId = computed(() => opened.value && active.value >= 0 ? `${menuId}-$
 let ownerDialog: HTMLDialogElement | null = null
 let observer: MutationObserver | undefined
 let resizeObserver: ResizeObserver | undefined
+let openGeneration = 0
 let search = ''
 let lastTypedAt = 0
 
@@ -44,6 +45,7 @@ function removeListeners() {
   resizeObserver?.disconnect(); resizeObserver = undefined
 }
 function close(restoreFocus = false) {
+  ++openGeneration
   if (!opened.value) return
   opened.value = false
   removeListeners()
@@ -91,6 +93,7 @@ function positionMenu() {
   panel.dataset.side = upward ? 'top' : 'bottom'
 }
 function addListeners() {
+  removeListeners()
   document.addEventListener('pointerdown', outsidePointer, true)
   document.addEventListener('focusin', outsideFocus, true)
   document.addEventListener('scroll', ancestorScroll, true)
@@ -119,10 +122,11 @@ function reveal(panel: HTMLElement) {
 }
 async function open(index = selectedIndex.value >= 0 ? selectedIndex.value : 0) {
   if (opened.value || unavailable()) return
+  const generation = ++openGeneration
   active.value = Math.max(0, Math.min(index, props.options.length - 1))
   opened.value = true
   await nextTick()
-  if (!opened.value || unavailable() || !popup.value) { close(false); return }
+  if (generation !== openGeneration || !opened.value || unavailable() || !popup.value) { if (generation === openGeneration) close(false); return }
   try { reveal(popup.value) }
   catch {
     if (!usePopover.value) { close(false); return }
@@ -130,9 +134,10 @@ async function open(index = selectedIndex.value >= 0 ? selectedIndex.value : 0) 
     // outside an enclosing modal (where its contents would become inert).
     usePopover.value = false
     await nextTick()
-    if (!opened.value || unavailable() || !popup.value) { close(false); return }
+    if (generation !== openGeneration || !opened.value || unavailable() || !popup.value) { if (generation === openGeneration) close(false); return }
     try { reveal(popup.value) } catch { close(false); return }
   }
+  if (generation !== openGeneration || !opened.value) return
   addListeners()
   if (usePopover.value) trigger.value?.focus({ preventScroll: true })
   else popup.value.focus({ preventScroll: true })

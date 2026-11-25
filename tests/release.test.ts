@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, writeFile, rm, access, copyFile } from 'node:
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { bumpVersion, checkVersion, stableVersion } from '../scripts/version.mjs';
-import { assembleRelease, collectArtifacts, releaseNames, releaseNotes, signatureEnvelope } from '../scripts/release-manifest.mjs';
+import { assembleRelease, collectArtifacts, releaseNames, releaseNotes, resolveConfiguredRepository, signatureEnvelope } from '../scripts/release-manifest.mjs';
 
 async function temporary(t) {
   const root = await mkdtemp(join(tmpdir(), 'starclip-release-test-'));
@@ -163,4 +163,12 @@ test('收集平台产物时必须同时存在安装包与官方签名文件', as
   await assert.rejects(collectArtifacts(source, output, 'windows-x86_64', '0.2.0'), /ENOENT/);
   await writeFile(join(source, 'Starclip_0.2.0_x64-setup.exe.sig'), signingFixture().signature);
   assert.deepEqual(await collectArtifacts(source, output, 'windows-x86_64', '0.2.0'), ['Starclip_0.2.0_x64-setup.exe', 'Starclip_0.2.0_x64-setup.exe.sig']);
+});
+
+test('仓库名大小写变化时按配置端点规范化，保持与旧版客户端前缀一致', () => {
+  const endpoints = ['https://github.com/StarDreamTech/starclip/releases/latest/download/latest.json'];
+  assert.equal(resolveConfiguredRepository('StarDreamTech/StarClip', endpoints), 'StarDreamTech/starclip');
+  assert.equal(resolveConfiguredRepository('StarDreamTech/starclip', endpoints), 'StarDreamTech/starclip');
+  assert.throws(() => resolveConfiguredRepository('other/starclip', endpoints), /更新地址不一致/);
+  assert.throws(() => resolveConfiguredRepository('bad repo', endpoints), /仓库名无效/);
 });

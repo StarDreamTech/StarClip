@@ -202,7 +202,7 @@ test('restored navigation handles missing groups, reduced pages and temporary se
   } finally { clean.cleanup(); }
 });
 
-async function mount(options: { delayedRead?: boolean; delayedCloseListener?: boolean; initialCloseRequest?: number; delayedCloseQuery?: boolean; cache?: Map<string, string>; state?: Partial<AppState> } = {}) {
+async function mount(options: { delayedRead?: boolean; delayedCloseListener?: boolean; initialCloseRequest?: number; delayedCloseQuery?: boolean; appearanceFail?: boolean; cache?: Map<string, string>; state?: Partial<AppState> } = {}) {
   const state: AppState = {
     onboardingCompleted: true, clips: [], groups: [],
     settings: { paused: true, pauseRevision: 0, uiLanguage: 'system', theme: 'dark', layout: 'grid', maxHistory: 0, retentionDays: 0, alwaysOnTop: false, showStartup: false, stickerPack: 'none', shortcut: 'CommandOrControl+Shift+V' },
@@ -242,7 +242,11 @@ async function mount(options: { delayedRead?: boolean; delayedCloseListener?: bo
     navigator: { platform: 'MacIntel' },
     localStorage: { getItem: (key: string) => cache.get(key) ?? null, setItem: (key: string, value: string) => cache.set(key, value) },
     windowReleaseMock: {
-      api: mock, getAppearance: async () => defaultAppearance(),
+      api: mock,
+      getAppearance: async () => {
+        if (options.appearanceFail) throw new Error('appearance disk read failed');
+        return defaultAppearance();
+      },
       recordStudioOpened() {}, async quitStarclip() { stopped.quit++; },
       async listen(name: string) { assert.equal(name, 'starpet-growth-error'); return () => { stopped.growth++; }; },
     },
@@ -787,3 +791,59 @@ test('quick copy hides the window and returns focus unless the preference is off
     assert.equal(calls.length, before, 'turning the preference off keeps the window open');
   } finally { fixture.cleanup(); }
 });
+
+test('hideAfterCopy toggle round-trip stays clean, appearance load error does not trap release, and starPetBusy is isolated', async () => {
+  const fixture = await mount({ appearanceFail: true });
+  const { vm, calls } = fixture;
+  try {
+    assert.ok(vm.appearanceError.length > 0);
+    vm.openSettings();
+    assert.equal(vm.settingsDirty, false, 'omitted hideAfterCopy defaults to true without dirtying');
+    vm.settingsDraft.hideAfterCopy = false;
+    assert.equal(vm.settingsDirty, true);
+    vm.settingsDraft.hideAfterCopy = true;
+    assert.equal(vm.settingsDirty, false, 'toggling hideAfterCopy back to true must clear dirty state');
+    assert.equal(vm.settingsCanRelease, true, 'failed appearance load must not permanently block window release');
+    await fixture.close(501);
+    assert.deepEqual(calls.at(-1), { release: true, requestId: 501 });
+
+    vm.dataOperationBusy = true;
+    vm.starPetBusy = true;
+    assert.equal(vm.dataBusy, true);
+    vm.starPetBusy = false;
+    assert.equal(vm.dataOperationBusy, true, 'clearing starPetBusy must not overwrite dataOperationBusy');
+    assert.equal(vm.dataBusy, true);
+    vm.dataOperationBusy = false;
+    assert.equal(vm.dataBusy, false);
+  } finally { fixture.cleanup(); }
+});
+
+test('quick copy after search cancels the pending search debounce instead of refreshing twice', async () => {
+  const fixture = await mount();
+  const { vm, requests } = fixture;
+  try {
+    const clip = { id: 8, content: '原创检索记录', title: '', kind: 'text', language: null, pinned: false, keepForever: false, groupId: null, createdAt: 1, updatedAt: 1, copyCount: 0 };
+    vm.query = '原创';
+    await new Promise(resolve => setTimeout(resolve, 200));
+    await flush();
+    const beforeCopy = requests.length;
+    await vm.copy(clip, true);
+    await new Promise(resolve => setTimeout(resolve, 220));
+    await flush();
+    assert.equal(requests.length, beforeCopy + 1, 'clearing query during quick copy must not fire a duplicate debounced refresh');
+    assert.equal(requests.at(-1)?.query, '');
+  } finally { fixture.cleanup(); }
+});
+
+test('dateLabel updates when today crosses midnight', async () => {
+  const fixture = await mount();
+  const { vm } = fixture;
+  try {
+    vm.today = new Date(2026, 4, 10, 23, 59, 0).getTime();
+    const day1 = vm.dateLabel;
+    vm.today = new Date(2026, 4, 11, 0, 1, 0).getTime();
+    const day2 = vm.dateLabel;
+    assert.notEqual(day1, day2);
+  } finally { fixture.cleanup(); }
+});
+

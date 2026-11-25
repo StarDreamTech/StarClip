@@ -34,7 +34,7 @@ let demo: AppState = {
   onboardingCompleted: false,
   clips: samples.map((clip, i) => ({ ...clip, keepForever: false, id: i + 1, createdAt: now - i * 1800000, updatedAt: now - i * 1800000, copyCount: i === 1 ? 12 : 0 })),
   groups: [{ id: 1, name: t('灵感碎片'), color: '#d9b780' }, { id: 2, name: t('开发工具箱'), color: '#87bab6' }, { id: 3, name: t('设计收藏'), color: '#b69bd7' }],
-  settings: { paused: true, pauseRevision: 0, uiLanguage: 'system', showStartup: true, stickerPack: 'auto', theme: 'dark', layout: 'grid', maxHistory: 0, retentionDays: 0, alwaysOnTop: false, shortcut: 'CommandOrControl+Shift+V' },
+  settings: { paused: true, pauseRevision: 0, uiLanguage: 'system', showStartup: true, stickerPack: 'auto', theme: 'dark', layout: 'grid', maxHistory: 0, retentionDays: 0, alwaysOnTop: false, hideAfterCopy: true, shortcut: 'CommandOrControl+Shift+V' },
   clipboardError: null, shortcutError: null, windowError: null,
 };
 // ponytail: browser preview stays in memory; only the native app persists real history.
