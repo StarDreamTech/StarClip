@@ -169,7 +169,8 @@ impl Store {
                 )
                 .optional()
                 .map_err(sql_error)?;
-            let current = current.ok_or(STALE_CLEANUP)?;
+            let mut current = current.ok_or(STALE_CLEANUP)?;
+            Self::fill_bundle_images(&tx, std::slice::from_mut(&mut current))?;
             if current.keep_forever
                 || current.pinned
                 || cleanup_fingerprint(&current)? != expected.fingerprint

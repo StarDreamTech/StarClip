@@ -15,7 +15,7 @@ const opened = ref(false);
 const draft = ref('');
 const edited = ref(false);
 const position = ref({ left: '0px', top: '0px' });
-const nativePopover = typeof HTMLElement !== 'undefined' && 'showPopover' in HTMLElement.prototype;
+const nativePopover = ref(typeof HTMLElement !== 'undefined' && typeof HTMLElement.prototype.showPopover === 'function');
 const current = computed(() => normalizeHex(props.modelValue) || '#000000');
 const validDraft = computed(() => normalizeHex(draft.value));
 const invalid = computed(() => edited.value && !validDraft.value);
@@ -27,6 +27,7 @@ const colors = [
 ];
 let ownerDialog: HTMLDialogElement | null = null;
 let observer: MutationObserver | undefined;
+let openGeneration = 0;
 
 function isDisabled() { return props.disabled || trigger.value?.matches(':disabled'); }
 function detach() {
@@ -38,14 +39,17 @@ function detach() {
   observer?.disconnect(); observer = undefined;
 }
 function close(restoreFocus = true) {
+  ++openGeneration;
   if (!opened.value) return;
   opened.value = false;
   detach();
-  if (nativePopover) {
-    if (panel.value?.matches(':popover-open')) panel.value.hidePopover();
-  } else if ((panel.value as HTMLDialogElement | undefined)?.open) {
-    (panel.value as HTMLDialogElement).close();
-  }
+  try {
+    if (nativePopover.value) {
+      if (panel.value?.matches(':popover-open')) panel.value.hidePopover();
+    } else if ((panel.value as HTMLDialogElement | undefined)?.open) {
+      (panel.value as HTMLDialogElement).close();
+    }
+  } catch { /* The browser may already have closed a detached or hidden popup. */ }
   if (restoreFocus && trigger.value?.isConnected && !isDisabled()) trigger.value.focus({ preventScroll: true });
 }
 function ownerClosed() { close(false); }
@@ -73,19 +77,32 @@ function ancestorChanged() {
   const button = trigger.value;
   if (!button || isDisabled() || !button.getClientRects().length || getComputedStyle(button).visibility === 'hidden') close(false);
 }
+function showPanel(element: HTMLElement) {
+  if (nativePopover.value) element.showPopover();
+  else (element as HTMLDialogElement).showModal();
+}
 async function toggle() {
   if (opened.value) { close(); return; }
   if (isDisabled() || !panel.value) return;
+  const generation = ++openGeneration;
   draft.value = current.value;
   edited.value = false;
-  if (nativePopover) panel.value.showPopover();
-  else (panel.value as HTMLDialogElement).showModal();
   opened.value = true;
+  try {
+    showPanel(panel.value);
+  } catch {
+    if (!nativePopover.value) { close(false); return; }
+    nativePopover.value = false;
+    await nextTick();
+    if (generation !== openGeneration || !opened.value || isDisabled() || !panel.value) { if (generation === openGeneration) close(false); return; }
+    try { showPanel(panel.value); } catch { close(false); return; }
+  }
   await nextTick();
-  if (!opened.value) return;
+  if (generation !== openGeneration || !opened.value || isDisabled() || !panel.value) { if (generation === openGeneration) close(false); return; }
   place();
   input.value?.focus({ preventScroll: true });
   input.value?.select();
+  detach();
   document.addEventListener('pointerdown', outside, true);
   document.addEventListener('scroll', scrolled, true);
   window.addEventListener('resize', place);
@@ -117,7 +134,7 @@ function panelPointerDown(event: PointerEvent) {
     event.preventDefault();
     button.focus({ preventScroll: true });
   }
-  if (nativePopover || event.target !== panel.value || !panel.value) return;
+  if (nativePopover.value || event.target !== panel.value || !panel.value) return;
   const rect = panel.value.getBoundingClientRect();
   if (event.clientX < rect.left || event.clientX > rect.right || event.clientY < rect.top || event.clientY > rect.bottom) close();
 }

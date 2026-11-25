@@ -237,6 +237,14 @@ export const backendEn: Record<string, string> = {
 
 }
 export const backendPatterns: Array<[RegExp, string]> = [
+  [/^(记录已清理，但磁盘整理未完成：[\s\S]+?)；([\s\S]+?；最终占用暂沿用清理前数值，释放量尚无法测量。)$/, "$1; $2"],
+  [/^([\s\S]+?)；最终占用暂沿用清理前数值，释放量尚无法测量。$/, "$1; usage still shows the pre-cleanup value and the released amount cannot be measured yet."],
+  [/^记录已清理，但磁盘整理未完成：([\s\S]*)$/, "Clips were cleaned up, but disk compaction did not finish: $1"],
+  [/^星伴已停用，窗口资源释放未完成：([\s\S]*)$/, "StarPet was disabled, but its window resources were not fully released: $1"],
+  [/^数据目录操作失败：([\s\S]*)$/, "Data folder operation failed: $1"],
+  [/^无法读取数据库占用：([\s\S]*)$/, "Could not read database usage: $1"],
+  [/^无法读取数据库日志占用：([\s\S]*)$/, "Could not read database log usage: $1"],
+  [/^这个动作将在 Lv\.(\d+) 解锁。$/, "This action unlocks at Lv.$1."],
   [/^无法重新创建主窗口：([\s\S]*)$/, "Could not recreate the main window: $1"],
   [/^无法打开主窗口：([\s\S]*)$/, "Could not open the main window: $1"],
   [/^无法创建星伴窗口，偏好未保存：([\s\S]*)$/, "Could not create the StarPet window; preferences were not saved: $1"],
@@ -248,8 +256,11 @@ export const backendPatterns: Array<[RegExp, string]> = [
   [/^星伴偏好未保存：([\s\S]*?)；恢复窗口状态失败：([\s\S]*)$/, "StarPet preferences were not saved: $1; restoring the window failed: $2. Restart Starclip."],
   [/^无法拖动星伴：([\s\S]*)$/, "Could not drag StarPet: $1"],
   [/^无法访问剪贴板：([\s\S]*)$/, "Could not access the clipboard: $1"],
+  [/^剪贴板读取失败：([\s\S]*)$/, "Could not read the clipboard: $1"],
   [/^复制失败：([\s\S]*)$/, "Copy failed: $1"],
+  [/^文件复制失败：([\s\S]*)$/, "File copy failed: $1"],
   [/^图片复制失败：([\s\S]*)$/, "Image copy failed: $1"],
+  [/^一次复制超过 (\d+) 个文件，未记录。$/, "More than $1 files were copied at once and were not recorded."],
   [/^无法应用窗口置顶，偏好设置未保存：([\s\S]*)$/, "Could not apply always-on-top; preferences were not saved: $1"],
   [/^恢复原窗口置顶状态失败，请重试保存偏好：([\s\S]*)$/, "Could not restore always-on-top; save preferences again: $1"],
   [/^贴纸图片尺寸超过限制：([\s\S]*)$/, "Sticker exceeds the size limits: $1"],

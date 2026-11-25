@@ -9,6 +9,7 @@ import type { HandwritingAssets, HandwritingFontProgress, HandwritingOptions, Ha
 import UiColor from './UiColor.vue';
 
 const props = defineProps<{ text: string; title: string }>();
+const emit = defineEmits<{ busy: [value: boolean] }>();
 const assets = ref<HandwritingAssets>({ available: false, path: null, fonts: [], backgrounds: [], error: null });
 const loading = ref(true);
 const operation = ref<'download' | 'export' | null>(null);
@@ -30,6 +31,7 @@ const padding = ref(100);
 const preview = ref('');
 const renderedKey = ref('');
 let disposed = false;
+watch(() => operation.value !== null, value => { if (!disposed) emit('busy', value); }, { immediate: true, flush: 'sync' });
 const downloadedFonts = computed(() => assets.value.fonts.filter(item => item.downloaded));
 const currentFont = computed(() => downloadedFonts.value.find(item => item.path === font.value));
 const visibleFonts = computed(() => {
@@ -100,7 +102,7 @@ async function loadAssets() {
   finally { if (!disposed) loading.value = false; }
 }
 onMounted(loadAssets);
-onBeforeUnmount(() => { disposed = true; clearProgress(); scheduler.dispose(); });
+onBeforeUnmount(() => { disposed = true; clearProgress(); scheduler.dispose(); emit('busy', false); });
 let stopProgress: (() => void) | undefined;
 function clearProgress() { stopProgress?.(); stopProgress = undefined; downloadProgress.value = null; }
 async function selectFont(id: string) {
@@ -117,6 +119,7 @@ async function selectFont(id: string) {
         if (!disposed && progress.id === id) downloadProgress.value = progress;
       });
     } catch { stopProgress = undefined; }
+    if (disposed) { clearProgress(); return; }
   }
   try {
     const value = await api.downloadHandwritingFont(id);

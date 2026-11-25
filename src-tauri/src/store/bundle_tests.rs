@@ -260,3 +260,51 @@ fn bundle_private_limits_ai_and_image_filter_are_enforced() {
     assert!(clean.import(&invalid.to_string()).is_err());
     assert!(clean.clips().unwrap().is_empty());
 }
+
+#[test]
+fn bundle_cleanup_executes_and_detects_bundle_changes() {
+    let mut db = memory();
+    let pictures = vec![picture(30), picture(31)];
+    let bundle = db
+        .add_bundle(
+            "cleanup bundle",
+            &pictures,
+            "Bundle title",
+            false,
+            false,
+            None,
+        )
+        .unwrap();
+    let filter = CleanupFilter {
+        min_bytes: 0,
+        older_than_days: 0,
+        kind: "all".into(),
+        include_grouped: true,
+    };
+    let snapshot = db.preview_cleanup(&filter).unwrap();
+    assert_eq!(snapshot.preview.matched_count, 1);
+    assert_eq!(snapshot.preview.items[0].id, bundle.id);
+    assert_eq!(snapshot.preview.items[0].kind, "bundle");
+
+    // Modifying clip_bundle_items after preview must still invalidate the snapshot.
+    db.conn
+        .execute(
+            "DELETE FROM clip_bundle_items WHERE clip_id=?1 AND position=1",
+            [bundle.id],
+        )
+        .unwrap();
+    assert!(db.execute_cleanup(snapshot, false).is_err());
+
+    // A fresh preview on the current bundle succeeds and deletes the bundle & member rows.
+    let fresh_snapshot = db.preview_cleanup(&filter).unwrap();
+    let result = db.execute_cleanup(fresh_snapshot, false).unwrap();
+    assert_eq!(result.deleted_count, 1);
+    assert!(db.clips().unwrap().is_empty());
+    assert_eq!(
+        db.conn
+            .query_row("SELECT COUNT(*) FROM bundle_images", [], |r| r
+                .get::<_, i64>(0))
+            .unwrap(),
+        0
+    );
+}

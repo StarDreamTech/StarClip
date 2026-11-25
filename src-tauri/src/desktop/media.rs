@@ -232,6 +232,7 @@ pub(super) fn write_bundle(
     reader.last_bundle_id = None;
     // Always verify decoded collection content before treating a native read as our own copy.
     reader.capture = CaptureState::default();
+    reader.generation = reader.generation.wrapping_add(1);
     Ok(())
 }
 

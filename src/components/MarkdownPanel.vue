@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, ref, watch } from 'vue';
+import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue';
 import { toPng } from 'html-to-image';
 import { api } from '../api';
 import { safeFilename } from '../snippets';
@@ -19,10 +19,14 @@ const busy = ref(false);
 const error = ref('');
 const notice = ref('');
 const styles: Record<string, string> = { light, purple, dark };
-const html = computed(() => { try { return renderMarkdown(props.text); } catch { return ''; } });
+const rendered = computed(() => {
+  try { return { html: renderMarkdown(props.text), error: '' }; }
+  catch (e) { return { html: '', error: errorText(e) }; }
+});
 let article: HTMLElement | undefined;
+let disposed = false;
 function refresh() {
-  if (!host.value) return;
+  if (disposed || !host.value) return;
   const root = host.value.shadowRoot ?? host.value.attachShadow({ mode: 'open' });
   root.replaceChildren();
   const style = document.createElement('style');
@@ -31,27 +35,32 @@ function refresh() {
 #write * { max-height:none; } #write pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--code-block-bg-color); color:var(--code-block-color); padding:16px; } #write code { font-family:monospace; } #write pre code {color:inherit;background:transparent;} #write table {width:100%; table-layout:fixed;} #write td,#write th {overflow-wrap:anywhere;} #write .md-link {color:var(--a-color);text-decoration:underline;}`;
   article = document.createElement('article'); article.id = 'write';
   const heading = document.createElement('h1'); heading.textContent = props.title;
-  const body = document.createElement('div'); body.innerHTML = html.value;
+  const body = document.createElement('div'); body.innerHTML = rendered.value.html;
   if (props.title.trim()) article.append(heading);
   article.append(body); root.append(style, article);
   error.value = ''; notice.value = '';
-  try { renderMarkdown(props.text); checkMarkdownImageSize(width.value, article.scrollHeight); }
+  if (rendered.value.error) { error.value = rendered.value.error; return; }
+  try { checkMarkdownImageSize(width.value, article.scrollHeight); }
   catch (e) { error.value = errorText(e); }
 }
-watch([html, () => props.title, theme, width, size], () => nextTick(refresh));
+watch([() => props.text, () => props.title, theme, width, size], () => nextTick(refresh));
 onMounted(refresh);
+onBeforeUnmount(() => { disposed = true; if (busy.value) { busy.value = false; emit('busy', false); } });
 async function exportImage() {
   if (busy.value || !props.text.trim()) return;
   busy.value = true; emit('busy', true); notice.value = '';
   try {
-    await nextTick(); refresh();
+    await nextTick();
+    if (disposed) return;
+    refresh();
     if (error.value || !article) return;
     const height = article.scrollHeight;
     checkMarkdownImageSize(width.value, height);
     const url = await toPng(article, { pixelRatio: 2, width: width.value, height, skipFonts: true });
-    if (await api.saveExport(url.split(',')[1]!, 'png', `${safeFilename(props.title)}.png`)) notice.value = t('Markdown 图片已导出');
-  } catch (e) { error.value = errorText(e); }
-  finally { busy.value = false; emit('busy', false); }
+    if (disposed) return;
+    if (await api.saveExport(url.split(',')[1]!, 'png', `${safeFilename(props.title)}.png`) && !disposed) notice.value = t('Markdown 图片已导出');
+  } catch (e) { if (!disposed) error.value = errorText(e); }
+  finally { if (!disposed) { busy.value = false; emit('busy', false); } }
 }
 </script>
 <template>

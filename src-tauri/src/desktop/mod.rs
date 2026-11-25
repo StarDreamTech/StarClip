@@ -39,6 +39,7 @@ struct Reader {
     last_bundle_id: Option<i64>,
     copy_image_png: Option<Vec<u8>>,
     own_bundle: Option<String>,
+    generation: u64,
 }
 struct Context {
     storage: Mutex<Storage>,
@@ -1454,10 +1455,18 @@ fn set_theme(app: AppHandle, context: AppContext<'_>, theme: String) -> Result<S
 fn save_settings(
     app: AppHandle,
     context: AppContext<'_>,
+    settings: Settings,
+    expected_pause_revision: Option<u64>,
+) -> Result<()> {
+    save_settings_inner(&app, &context, settings, expected_pause_revision)
+}
+fn save_settings_inner(
+    app: &AppHandle,
+    context: &Context,
     mut settings: Settings,
     expected_pause_revision: Option<u64>,
 ) -> Result<()> {
-    let _write = write_guard(&context)?;
+    let _write = write_guard(context)?;
     settings.validate()?;
     let old = lock(&context.store)?.settings()?;
     let shortcut: Shortcut = settings
@@ -1486,7 +1495,7 @@ fn save_settings(
         }
         let message = format!("无法应用窗口置顶，偏好设置未保存：{error}");
         *lock(&context.window_error)? = Some(message.clone());
-        changed(&app);
+        changed(app);
         return Err(message);
     }
     let save_result = (|| -> Result<()> {
@@ -1496,6 +1505,7 @@ fn save_settings(
             .save_settings_with_pause_guard(&settings, expected_pause_revision)?;
         if old.paused != settings.paused {
             reader.capture = CaptureState::default();
+            reader.generation = reader.generation.wrapping_add(1);
         }
         Ok(())
     })();
@@ -1508,7 +1518,7 @@ fn save_settings(
             .and_then(|window| window.set_always_on_top(previous_top).err())
             .map(|error| format!("恢复原窗口置顶状态失败，请重试保存偏好：{error}"));
         *lock(&context.window_error)? = rollback_error.clone();
-        changed(&app);
+        changed(app);
         return Err(match rollback_error {
             Some(rollback) => format!("{error}；{rollback}"),
             None => error,
@@ -1522,9 +1532,9 @@ fn save_settings(
     }
     *lock(&context.window_error)? = None;
     drop(_write);
-    refresh_tray(&app, &context, &settings);
-    apply_window_titles(&app, native_is_english(&context));
-    changed(&app);
+    refresh_tray(app, context, &settings);
+    apply_window_titles(app, native_is_english(context));
+    changed(app);
     Ok(())
 }
 #[tauri::command]
@@ -2540,6 +2550,7 @@ pub fn run() {
                     last_bundle_id: None,
                     copy_image_png: None,
                     own_bundle: None,
+                    generation: 0,
                 }),
                 clipboard_error: Mutex::new(None),
                 shortcut_error: Mutex::new(shortcut_error),
@@ -2580,22 +2591,24 @@ pub fn run() {
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_window(app),
                     "pause" => {
-                        let context = app.state::<Arc<Context>>();
-                        let result = (|| -> Result<()> {
-                            let mut settings = lock(&context.store)?.settings()?;
-                            let expected_pause_revision = settings.pause_revision;
-                            settings.paused = !settings.paused;
-                            save_settings(
-                                app.clone(),
-                                context,
-                                settings,
-                                Some(expected_pause_revision),
-                            )
-                        })();
-                        if let Err(error) = result {
-                            let context = app.state::<Arc<Context>>();
-                            set_clipboard_error(app, &context, Some(error));
-                        }
+                        let app = app.clone();
+                        let context = app.state::<Arc<Context>>().inner().clone();
+                        tauri::async_runtime::spawn_blocking(move || {
+                            let result = (|| -> Result<()> {
+                                let mut settings = lock(&context.store)?.settings()?;
+                                let expected_pause_revision = settings.pause_revision;
+                                settings.paused = !settings.paused;
+                                save_settings_inner(
+                                    &app,
+                                    &context,
+                                    settings,
+                                    Some(expected_pause_revision),
+                                )
+                            })();
+                            if let Err(error) = result {
+                                set_clipboard_error(&app, &context, Some(error));
+                            }
+                        });
                     }
                     "quit" => app.exit(0),
                     "starpet" => {

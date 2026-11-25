@@ -86,20 +86,31 @@ pub fn cache_root(root: &Path) -> Result<()> {
         if !meta.is_dir() || meta.file_type().is_symlink() {
             continue;
         }
+        let mut count_dir_bytes = |dir: &Path| -> Result<()> {
+            for file in fs::read_dir(dir).map_err(|_| "无法读取图片临时目录。")? {
+                let meta = fs::symlink_metadata(file.map_err(|_| "无法读取图片临时目录。")?.path())
+                    .map_err(|_| "无法读取图片临时目录。")?;
+                bytes = bytes.saturating_add(meta.len());
+            }
+            Ok(())
+        };
         if meta
             .modified()
             .ok()
             .and_then(|t| t.elapsed().ok())
             .is_some_and(|age| age > TTL)
         {
-            fs::remove_dir_all(entry.path()).map_err(|_| "无法清理过期图片临时副本。")?;
-        } else {
-            for file in fs::read_dir(entry.path()).map_err(|_| "无法读取图片临时目录。")?
-            {
-                let meta = fs::symlink_metadata(file.map_err(|_| "无法读取图片临时目录。")?.path())
-                    .map_err(|_| "无法读取图片临时目录。")?;
-                bytes = bytes.saturating_add(meta.len());
+            if fs::remove_dir_all(entry.path()).is_err() && entry.path().exists() {
+                if let Ok(files) = fs::read_dir(entry.path()) {
+                    for file in files.flatten() {
+                        if let Ok(meta) = fs::symlink_metadata(file.path()) {
+                            bytes = bytes.saturating_add(meta.len());
+                        }
+                    }
+                }
             }
+        } else {
+            count_dir_bytes(&entry.path())?;
         }
     }
     // Reserve a full batch; don't evict live clipboard files to make room.
@@ -196,5 +207,46 @@ impl Batch {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[cfg(unix)]
+    #[test]
+    fn cache_root_tolerates_unremovable_expired_batch_directory() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let root = std::env::temp_dir().join(format!(
+            "starclip-image-transfer-test-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).unwrap();
+        let locked = root.join("Starclip-images-0123456789abcdef0123456789abcdef");
+        fs::create_dir_all(&locked).unwrap();
+        let file = locked.join("Starclip-01-1.png");
+        fs::write(&file, b"fixture").unwrap();
+
+        // Backdate directory mtime past TTL and make it read-only so remove_dir_all fails for non-root.
+        let status = std::process::Command::new("touch")
+            .args(["-t", "202001010000"])
+            .arg(&locked)
+            .status()
+            .unwrap();
+        assert!(status.success());
+        fs::set_permissions(&locked, fs::Permissions::from_mode(0o500)).unwrap();
+
+        let result = cache_root(&root);
+
+        let _ = fs::set_permissions(&locked, fs::Permissions::from_mode(0o700));
+        let _ = fs::remove_dir_all(&root);
+
+        assert!(
+            result.is_ok(),
+            "cache_root should tolerate locked expired batch: {result:?}"
+        );
     }
 }

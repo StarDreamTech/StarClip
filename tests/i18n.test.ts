@@ -60,6 +60,20 @@ test('native messages use exact translations, dynamic prefixes and a safe Englis
   setLocale('en-US', false);
   assert.equal(errorText(new Error('快捷键格式无效，例如 CommandOrControl+Shift+V。')), 'Invalid shortcut format. Use something like CommandOrControl+Shift+V.');
   assert.equal(errorText(new Error('无法打开主窗口：native details')), 'Could not open the main window: native details');
+  assert.equal(
+    errorText(new Error('记录已清理，但磁盘整理未完成：SQLITE_BUSY；无法读取数据库占用：EACCES；最终占用暂沿用清理前数值，释放量尚无法测量。')),
+    'Clips were cleaned up, but disk compaction did not finish: SQLITE_BUSY; Could not read database usage: EACCES; usage still shows the pre-cleanup value and the released amount cannot be measured yet.',
+  );
+  assert.equal(
+    errorText(new Error('记录已清理，但磁盘整理未完成：SQLITE_BUSY')),
+    'Clips were cleaned up, but disk compaction did not finish: SQLITE_BUSY',
+  );
+  assert.equal(errorText(new Error('这个动作将在 Lv.7 解锁。')), 'This action unlocks at Lv.7.');
+  assert.equal(errorText(new Error('无法读取数据库占用：EACCES')), 'Could not read database usage: EACCES');
+  assert.equal(errorText(new Error('无法读取数据库日志占用：EACCES')), 'Could not read database log usage: EACCES');
+  assert.equal(errorText(new Error('星伴已停用，窗口资源释放未完成：timeout')), 'StarPet was disabled, but its window resources were not fully released: timeout');
+  assert.equal(errorText(new Error('数据目录操作失败：EACCES')), 'Data folder operation failed: EACCES');
+  assert.equal(errorText(new Error('无法访问剪贴板：busy')), 'Could not access the clipboard: busy');
   assert.match(errorText(new Error('未翻译的底层错误')), /operation could not be completed/i);
   assert.equal(errorText(new Error('Plain English failure')), 'Plain English failure');
 });

@@ -323,7 +323,7 @@ fn secret_key(key: &str) -> bool {
         .chars()
         .filter(|c| c.is_ascii_alphanumeric())
         .collect();
-    matches!(
+    if matches!(
         key.as_str(),
         "password"
             | "passwd"
@@ -338,7 +338,34 @@ fn secret_key(key: &str) -> bool {
             | "privatekey"
             | "mnemonic"
             | "seedphrase"
-    )
+    ) {
+        return true;
+    }
+    [
+        "password",
+        "passwd",
+        "secret",
+        "apikey",
+        "secretkey",
+        "secretaccesskey",
+        "accesskeyid",
+        "privatekey",
+        "accesstoken",
+        "refreshtoken",
+        "authtoken",
+        "apitoken",
+        "bottoken",
+        "bearertoken",
+        "githubtoken",
+        "gitlabtoken",
+        "npmtoken",
+        "hftoken",
+        "slacktoken",
+        "discordtoken",
+        "telegramtoken",
+    ]
+    .iter()
+    .any(|suffix| key.ends_with(suffix))
 }
 fn url_credentials(url: &Url) -> bool {
     url.password().is_some()
@@ -452,7 +479,11 @@ pub fn scan_with_origin(
         }
     }
     for token in text.split(|c: char| {
-        c.is_whitespace() || matches!(c, '\'' | '"' | ',' | ';' | '(' | ')' | '{' | '}')
+        c.is_whitespace()
+            || matches!(
+                c,
+                '\'' | '"' | ',' | ';' | '(' | ')' | '{' | '}' | '[' | ']' | '=' | ':' | '&'
+            )
     }) {
         if [
             "sk-",
@@ -732,5 +763,42 @@ mod tests {
             Metadata::default().scanned("", "游戏截图", "image", &PrivacyRules::default(), false);
         assert!(!metadata.is_private());
         assert_eq!(metadata.scan_version, 0);
+    }
+    #[test]
+    fn env_and_prefixed_secret_keys_are_detected_without_common_false_positives() {
+        for text in [
+            "OPENAI_API_KEY=sk-proj1234567890abcdef",
+            "GITHUB_TOKEN=ghp_1234567890abcdef1234",
+            "SLACK_BOT_TOKEN=xoxb-1234567890abcdef",
+            "AWS_ACCESS_KEY_ID=AKIA1234567890ABCDEF",
+            "AWS_SECRET_ACCESS_KEY=example-secret-value",
+            "CUSTOM_API_KEY=fixture-key-only",
+            "DB_PASSWORD=fixture-pass",
+            "JWT_SECRET=fixture-jwt-secret",
+            "token:gho_1234567890abcdef1234",
+            "https://example.test/api?k=sk-1234567890abcdef1234&v=1",
+        ] {
+            assert!(!scan_for(text).reasons.is_empty(), "{text}");
+        }
+        assert!(scan_for("OPENAI_API_KEY=sk-proj1234567890abcdef")
+            .reasons
+            .contains(&"凭据格式".into()));
+        assert!(scan_for("GITHUB_TOKEN=ghp_1234567890abcdef1234")
+            .reasons
+            .contains(&"凭据格式".into()));
+        for safe in [
+            "MAX_TOKENS=4096",
+            "NEXT_PAGE_TOKEN=cursor_12345",
+            "https://example.test/list?page_token=cursor_12345",
+            "TOKEN_COUNT=12",
+            "PASSWORD_POLICY=strict",
+            "CUSTOM_API_KEY=",
+        ] {
+            assert!(
+                scan_for(safe).reasons.is_empty(),
+                "unexpected private hit for {safe}: {:?}",
+                scan_for(safe).reasons
+            );
+        }
     }
 }
