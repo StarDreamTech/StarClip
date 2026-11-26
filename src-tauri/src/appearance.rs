@@ -83,7 +83,11 @@ fn decode_png(bytes: &[u8], max_edge: u32, max_pixels: u64) -> Result<DynamicIma
         if bytes.len().saturating_sub(offset) < 12 {
             return Err("贴纸 PNG 数据块不完整。".into());
         }
-        let length = u32::from_be_bytes(bytes[offset..offset + 4].try_into().unwrap()) as usize;
+        let length = u32::from_be_bytes(
+            bytes[offset..offset + 4]
+                .try_into()
+                .map_err(|_| "贴纸 PNG 数据块不完整。")?,
+        ) as usize;
         let end = offset
             .checked_add(12)
             .and_then(|value| value.checked_add(length))
@@ -101,8 +105,16 @@ fn decode_png(bytes: &[u8], max_edge: u32, max_pixels: u64) -> Result<DynamicIma
         }
         offset = end;
     }
-    let width = u32::from_be_bytes(bytes[16..20].try_into().unwrap());
-    let height = u32::from_be_bytes(bytes[20..24].try_into().unwrap());
+    let width = u32::from_be_bytes(
+        bytes[16..20]
+            .try_into()
+            .map_err(|_| "贴纸 PNG 头部不完整。")?,
+    );
+    let height = u32::from_be_bytes(
+        bytes[20..24]
+            .try_into()
+            .map_err(|_| "贴纸 PNG 头部不完整。")?,
+    );
     if width == 0
         || height == 0
         || width > max_edge

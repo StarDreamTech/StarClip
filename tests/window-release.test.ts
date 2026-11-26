@@ -264,6 +264,7 @@ async function mount(options: { delayedRead?: boolean; delayedCloseListener?: bo
     .replaceAll("'./appearance'", `'${new URL('../src/appearance.ts', import.meta.url).href}'`)
     .replaceAll("'./privacy'", `'${new URL('../src/privacy.ts', import.meta.url).href}'`)
     .replaceAll("'./clip-selection'", `'${new URL('../src/clip-selection.ts', import.meta.url).href}'`)
+    .replace(/from ['"]\.\/composables\/([^'"]+)['"]/g, (_match, file: string) => `from '${new URL(`../src/composables/${file}.ts`, import.meta.url).href}'`)
     .replaceAll("'./navigation'", `'${new URL('../src/navigation.ts', import.meta.url).href}'`)
     .replaceAll("'./theme'", `'${new URL('../src/theme.ts', import.meta.url).href}'`).replaceAll("'../i18n'", `'${new URL('../src/i18n/index.ts', import.meta.url).href}'`).replaceAll("'./i18n'", `'${new URL('../src/i18n/index.ts', import.meta.url).href}'`);
   const component = await import(moduleUrl(source));

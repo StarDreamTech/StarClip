@@ -6,6 +6,7 @@ import { safeFilename } from '../snippets';
 import { t, errorText } from '../i18n';
 import { renderMarkdown, checkMarkdownImageSize } from '../markdown-render';
 import themeLicense from '../markdown-themes/LICENSE?raw';
+import drakeBase from '../markdown-themes/drake-base.css?raw';
 import light from '../markdown-themes/drake-light.css?raw';
 import purple from '../markdown-themes/drake-purple.css?raw';
 import dark from '../markdown-themes/drake-dark.css?raw';
@@ -23,21 +24,47 @@ const rendered = computed(() => {
   try { return { html: renderMarkdown(props.text), error: '' }; }
   catch (e) { return { html: '', error: errorText(e) }; }
 });
+let styleEl: HTMLStyleElement | undefined;
 let article: HTMLElement | undefined;
+let headingEl: HTMLElement | undefined;
+let bodyEl: HTMLElement | undefined;
+let lastStyleKey = '';
 let disposed = false;
-function refresh() {
-  if (disposed || !host.value) return;
+
+function ensureShadowElements() {
+  if (!host.value) return false;
   const root = host.value.shadowRoot ?? host.value.attachShadow({ mode: 'open' });
-  root.replaceChildren();
-  const style = document.createElement('style');
-  style.textContent = styles[theme.value] + `
+  if (!styleEl || !article || !headingEl || !bodyEl) {
+    root.replaceChildren();
+    styleEl = document.createElement('style');
+    article = document.createElement('article');
+    article.id = 'write';
+    headingEl = document.createElement('h1');
+    bodyEl = document.createElement('div');
+    article.append(headingEl, bodyEl);
+    root.append(styleEl, article);
+    lastStyleKey = '';
+  }
+  return true;
+}
+
+function syncStyle() {
+  if (!styleEl) return;
+  const key = `${theme.value}|${width.value}|${size.value}`;
+  if (key === lastStyleKey) return;
+  lastStyleKey = key;
+  styleEl.textContent = drakeBase + '\n' + styles[theme.value] + `
 #write { box-sizing:border-box; width:${width.value}px; max-width:none; padding:40px; margin:0; font:${size.value}px/1.8 system-ui,sans-serif; color:var(--text-color); background:var(--bg-color); overflow-wrap:anywhere; }
 #write * { max-height:none; } #write pre { white-space:pre-wrap; overflow-wrap:anywhere; background:var(--code-block-bg-color); color:var(--code-block-color); padding:16px; } #write code { font-family:monospace; } #write pre code {color:inherit;background:transparent;} #write table {width:100%; table-layout:fixed;} #write td,#write th {overflow-wrap:anywhere;} #write .md-link {color:var(--a-color);text-decoration:underline;}`;
-  article = document.createElement('article'); article.id = 'write';
-  const heading = document.createElement('h1'); heading.textContent = props.title;
-  const body = document.createElement('div'); body.innerHTML = rendered.value.html;
-  if (props.title.trim()) article.append(heading);
-  article.append(body); root.append(style, article);
+}
+
+function refresh() {
+  if (disposed || !ensureShadowElements() || !article || !headingEl || !bodyEl) return;
+  syncStyle();
+  const hasTitle = !!props.title.trim();
+  headingEl.textContent = hasTitle ? props.title : '';
+  if (headingEl.style) headingEl.style.display = hasTitle ? '' : 'none';
+  bodyEl.innerHTML = rendered.value.html;
   error.value = ''; notice.value = '';
   if (rendered.value.error) { error.value = rendered.value.error; return; }
   try { checkMarkdownImageSize(width.value, article.scrollHeight); }

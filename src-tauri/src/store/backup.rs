@@ -235,7 +235,7 @@ impl Store {
                 .decode(&image.png)
                 .map_err(|_| "备份图片的 Base64 数据损坏。")?;
             let value = images::prepare_png(&png)?;
-            let metadata = clip.image.as_ref().unwrap();
+            let metadata = clip.image.as_ref().ok_or("备份图片缺少元数据。")?;
             if metadata.width != value.metadata().width
                 || metadata.height != value.metadata().height
                 || metadata.bytes != png.len() as u64

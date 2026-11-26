@@ -304,7 +304,7 @@ impl AiAccess {
             if !args.as_object().is_some_and(|a| a.is_empty()) {
                 return Err(DENIED.into());
             }
-            if !self.pet.signal.as_ref().is_some_and(|s| s.owner == c.id) {
+            if self.pet.signal.as_ref().is_none_or(|s| s.owner != c.id) {
                 return Ok((json!({"cleared":false}), 0));
             }
             None

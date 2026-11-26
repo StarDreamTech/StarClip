@@ -50,13 +50,12 @@ pub fn serve_stdio(
             continue;
         }
         let method = msg["method"].as_str().unwrap_or("");
-        if id.is_none() {
+        let Some(id) = id else {
             if method == "notifications/initialized" && negotiated {
                 initialized = true;
             }
             continue;
-        }
-        let id = id.unwrap();
+        };
         let params = msg.get("params").cloned().unwrap_or_else(|| json!({}));
         let result = match method {
             "initialize"

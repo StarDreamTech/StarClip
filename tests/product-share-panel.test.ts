@@ -4,8 +4,9 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import { createRenderer, nextTick } from 'vue';
-import { locale, setLocale, t } from '../src/i18n/index.ts';
+import { ensureLocaleLoaded, locale, setLocale, t } from '../src/i18n/index.ts';
 
+test.before(async () => { await ensureLocaleLoaded('en-US'); });
 test.afterEach(() => setLocale('zh-CN', false));
 
 type Node = { type: string; text: string; props: Record<string, any>; children: Node[]; parent?: Node };

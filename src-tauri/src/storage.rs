@@ -845,7 +845,10 @@ impl Storage {
                 self.pending_lock = Some(target_lock);
             }
             DirectoryMode::Move => {
-                if !target.is_absolute() || target.file_name().is_none() {
+                let Some(file_name) = target.file_name() else {
+                    return Err("目标必须是新的绝对目录路径。".into());
+                };
+                if !target.is_absolute() {
                     return Err("目标必须是新的绝对目录路径。".into());
                 }
                 let parent = target
@@ -853,7 +856,7 @@ impl Storage {
                     .ok_or("目标目录无效。")?
                     .canonicalize()
                     .map_err(io_error)?;
-                let target = parent.join(target.file_name().unwrap());
+                let target = parent.join(file_name);
                 if target.starts_with(&self.current) {
                     return Err("目标不能位于当前数据目录内部，请选择其他位置。".into());
                 }

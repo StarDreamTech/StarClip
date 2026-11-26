@@ -1,22 +1,59 @@
 import { ref } from 'vue'
-import { en } from './en.ts'
-import { enMore } from './en-more.ts'
-import { enMore2 } from './en-more2.ts'
-import { enMore3 } from './en-more3.ts'
-import { enData } from './en-data.ts'
-import { enUpdates } from './en-updates.ts'
-import { enPrivacy } from './en-privacy.ts'
-import { enHandwriting } from './en-handwriting.ts'
-import { enTelemetry } from './en-telemetry.ts'
-import { enMarkdown } from './en-markdown.ts'
-import { enStats } from './en-stats.ts'
-import { backendEn, backendPatterns } from './backend.ts'
 
 export type Locale = 'zh-CN' | 'en-US'
 export type UILanguage = 'system' | Locale
 
 const CACHE_KEY = 'starclip.ui-locale'
+const INTL_CACHE_LIMIT = 64
 export const locale = ref<Locale>('zh-CN')
+
+const catalogVersion = ref(0)
+let catalog: Record<string, string> = {}
+let nativePatterns: ReadonlyArray<[RegExp, string]> = []
+let enLoaded = false
+let enLoadPromise: Promise<void> | null = null
+
+const numberFormatters = new Map<string, Intl.NumberFormat>()
+const dateFormatters = new Map<string, Intl.DateTimeFormat>()
+const relativeFormatters = new Map<string, Intl.RelativeTimeFormat>()
+
+function cachedFormatter<T>(cache: Map<string, T>, key: string, create: () => T): T {
+  const existing = cache.get(key)
+  if (existing) return existing
+  if (cache.size >= INTL_CACHE_LIMIT) {
+    const oldest = cache.keys().next().value
+    if (oldest !== undefined) cache.delete(oldest)
+  }
+  const formatter = create()
+  cache.set(key, formatter)
+  return formatter
+}
+
+function optionsKey(lang: string, options?: object): string {
+  if (!options) return lang
+  const entries = Object.entries(options)
+    .filter(([, value]) => value !== undefined)
+    .sort(([a], [b]) => a.localeCompare(b))
+  return `${lang}|${JSON.stringify(entries)}`
+}
+
+export function ensureLocaleLoaded(target: Locale = locale.value): Promise<void> {
+  if (target !== 'en-US' || enLoaded) return Promise.resolve()
+  if (!enLoadPromise) {
+    enLoadPromise = import('./en-bundle.ts')
+      .then((bundle) => {
+        catalog = bundle.enCatalog
+        nativePatterns = bundle.backendPatterns
+        enLoaded = true
+        catalogVersion.value += 1
+      })
+      .catch((error) => {
+        enLoadPromise = null
+        throw error
+      })
+  }
+  return enLoadPromise
+}
 
 function browserLanguages(): string[] {
   if (typeof navigator === 'undefined') return []
@@ -44,6 +81,9 @@ export function cachedLocale(): Locale | null {
 
 export function setLocale(next: Locale, cache = true): void {
   locale.value = next
+  if (next === 'en-US' && !enLoaded) {
+    void ensureLocaleLoaded('en-US')
+  }
   if (cache) {
     try { if (typeof localStorage !== 'undefined') localStorage.setItem(CACHE_KEY, next) } catch { /* storage can be unavailable */ }
   }
@@ -62,25 +102,30 @@ export function applyLanguage(preference: UILanguage | string | undefined | null
 }
 
 export function formatNumber(value: number, options?: Intl.NumberFormatOptions): string {
-  return new Intl.NumberFormat(locale.value, options).format(value)
+  const lang = locale.value
+  const formatter = cachedFormatter(numberFormatters, optionsKey(lang, options), () => new Intl.NumberFormat(lang, options))
+  return formatter.format(value)
 }
 
 export function formatDate(value: number | Date, options: Intl.DateTimeFormatOptions): string {
-  return new Intl.DateTimeFormat(locale.value, options).format(value)
+  const lang = locale.value
+  const formatter = cachedFormatter(dateFormatters, optionsKey(lang, options), () => new Intl.DateTimeFormat(lang, options))
+  return formatter.format(value)
 }
 
 export function relativeTime(time: number, now = Date.now()): string {
   const minutes = Math.max(0, Math.floor((now - time) / 60000))
   if (minutes < 1) return t('刚刚')
-  const formatter = new Intl.RelativeTimeFormat(locale.value, { numeric: 'auto' })
+  const lang = locale.value
+  const formatter = cachedFormatter(relativeFormatters, `${lang}|auto`, () => new Intl.RelativeTimeFormat(lang, { numeric: 'auto' }))
   if (minutes < 60) return formatter.format(-minutes, 'minute')
   if (minutes < 1440) return formatter.format(-Math.floor(minutes / 60), 'hour')
   if (minutes < 10080) return formatter.format(-Math.floor(minutes / 1440), 'day')
   return formatDate(time, { month: 'short', day: 'numeric' })
 }
 
-const catalog: Record<string, string> = { ...en, ...enMore, ...enMore2, ...enMore3, ...enData, ...enUpdates, ...enPrivacy, ...enHandwriting, ...enTelemetry, ...enStats, ...enMarkdown, ...backendEn }
 function lookup(source: string): string {
+  void catalogVersion.value
   return catalog[source] ?? source
 }
 
@@ -100,7 +145,7 @@ function translateNativePattern(raw: string, depth = 0): string | null {
   if (depth >= 4) return null
   const exact = catalog[raw]
   if (exact) return exact
-  for (const [pattern, replacement] of backendPatterns) {
+  for (const [pattern, replacement] of nativePatterns) {
     const match = pattern.exec(raw)
     if (match) {
       return replacement.replace(/\$(\d+)/g, (_, index: string) => {
@@ -115,6 +160,7 @@ function translateNativePattern(raw: string, depth = 0): string | null {
 export function errorText(error: unknown): string {
   const raw = error instanceof Error ? error.message : String(error)
   if (locale.value === 'zh-CN') return raw
+  void catalogVersion.value
   const translated = translateNativePattern(raw)
   if (translated !== null) return translated
   if (/[\u4e00-\u9fff]/.test(raw)) {

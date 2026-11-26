@@ -1,4 +1,4 @@
-export const enMore3: Record<string, string> = {
+export const enStarpetWorkspace: Record<string, string> = {
   "已保存的快捷键无效。": "The saved shortcut is invalid.",
   "快捷键注册失败，可在偏好设置中更换。": "The saved shortcut could not be registered. Change it in Preferences.",
   "尚未读取快捷键状态": "Shortcut status has not been read yet",
@@ -236,7 +236,6 @@ export const enMore3: Record<string, string> = {
   "成长存档已保存到：{path}": "Growth save saved to: {path}",
   "已请求浏览器下载：{path}。保存位置由浏览器决定。": "Browser download requested: {path}. The browser chooses the folder.",
   "已取消导出，成长记录未改动。": "Export cancelled. Growth is unchanged.",
-  "成长存档不能超过 64 KiB。": "A growth save cannot exceed 64 KiB.",
   "成长存档已替换，剪贴历史与星芽外观偏好未改动。": "Growth save replaced. Clipboard history and StarBud appearance preferences are unchanged.",
   "成长记录已重置。剪贴历史、表情、颜色和大小保持原样。": "Growth reset. Clipboard history, mood, color and size are unchanged.",
   "星伴养成": "StarPet growth",
