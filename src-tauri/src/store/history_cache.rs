@@ -1,4 +1,5 @@
 use super::*;
+use std::collections::BTreeSet;
 
 const MAX_CACHE_BYTES: usize = 4 * 1024 * 1024;
 
@@ -41,10 +42,53 @@ pub(super) struct CachedHistoryGlobal {
     value: HistoryGlobal,
 }
 
+fn collect_json_strings(value: Option<&serde_json::Value>, out: &mut BTreeSet<String>) {
+    match value {
+        Some(serde_json::Value::String(text)) => {
+            out.insert(text.clone());
+        }
+        Some(serde_json::Value::Array(items)) => {
+            for item in items {
+                if let serde_json::Value::String(text) = item {
+                    out.insert(text.clone());
+                }
+            }
+        }
+        Some(serde_json::Value::Object(map)) => {
+            for item in map.values() {
+                if let serde_json::Value::String(text) = item {
+                    out.insert(text.clone());
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
 impl Store {
+    /// Wrap a write that only mutates non-history tables (such as `preferences`)
+    /// so it does not unnecessarily invalidate the cached global history facets.
+    pub(super) fn execute_non_history_write<T>(
+        &self,
+        write: impl FnOnce() -> Result<T>,
+    ) -> Result<T> {
+        let track = self.conn.is_autocommit();
+        let before = self.conn.total_changes();
+        let result = write();
+        if track && result.is_ok() && self.conn.is_autocommit() {
+            let delta = self.conn.total_changes().saturating_sub(before);
+            self.ignored_changes
+                .set(self.ignored_changes.get().saturating_add(delta));
+        }
+        result
+    }
+
     fn history_global_stamp(&self) -> Result<HistoryGlobalStamp> {
         Ok(HistoryGlobalStamp {
-            changes: self.conn.total_changes(),
+            changes: self
+                .conn
+                .total_changes()
+                .saturating_sub(self.ignored_changes.get()),
             data_version: self
                 .conn
                 .pragma_query_value(None, "data_version", |row| row.get(0))
@@ -97,46 +141,51 @@ impl Store {
     }
 
     fn query_history_global(&self) -> Result<HistoryGlobal> {
-        let from = "FROM clips c LEFT JOIN clip_privacy p ON p.clip_id=c.id";
         #[cfg(test)]
         self.history_global_queries
             .set(self.history_global_queries.get().saturating_add(1));
+
         let mut counts = BTreeMap::new();
+        let mut pinned_total = 0u64;
+        let mut kept_total = 0u64;
         let mut statement = self
             .conn
-            .prepare("SELECT kind,COUNT(*) FROM clips GROUP BY kind")
+            .prepare(
+                "SELECT kind,COUNT(*),COALESCE(SUM(CASE WHEN pinned=1 THEN 1 ELSE 0 END),0),COALESCE(SUM(CASE WHEN keep_forever=1 THEN 1 ELSE 0 END),0) FROM clips GROUP BY kind",
+            )
             .map_err(sql_error)?;
         for item in statement
             .query_map([], |row| {
-                Ok((row.get::<_, String>(0)?, row.get::<_, u64>(1)?))
+                Ok((
+                    row.get::<_, String>(0)?,
+                    row.get::<_, u64>(1)?,
+                    row.get::<_, u64>(2)?,
+                    row.get::<_, u64>(3)?,
+                ))
             })
             .map_err(sql_error)?
         {
-            let (kind, count) = item.map_err(sql_error)?;
+            let (kind, count, pinned, kept) = item.map_err(sql_error)?;
             counts.insert(kind, count);
+            pinned_total = pinned_total.saturating_add(pinned);
+            kept_total = kept_total.saturating_add(kept);
         }
         counts.insert("all".into(), counts.values().sum());
         let bundles = counts.remove("bundle").unwrap_or(0);
         *counts.entry("image".into()).or_default() += bundles;
-        for (key, predicate) in [
-            ("pinned", "c.pinned=1"),
-            ("kept", "c.keep_forever=1"),
-            (
-                "link",
-                "c.kind='link' OR json_array_length(p.metadata,'$.linkHosts')>0",
-            ),
-        ] {
-            counts.insert(
-                key.into(),
-                self.conn
-                    .query_row(
-                        &format!("SELECT COUNT(*) {from} WHERE {predicate}"),
-                        [],
-                        |row| row.get(0),
-                    )
-                    .map_err(sql_error)?,
-            );
-        }
+        counts.insert("pinned".into(), pinned_total);
+        counts.insert("kept".into(), kept_total);
+
+        let link_count: u64 = self
+            .conn
+            .query_row(
+                "SELECT COUNT(*) FROM clips c LEFT JOIN clip_privacy p ON p.clip_id=c.id WHERE c.kind='link' OR json_array_length(p.metadata,'$.linkHosts')>0",
+                [],
+                |row| row.get(0),
+            )
+            .map_err(sql_error)?;
+        counts.insert("link".into(), link_count);
+
         let mut statement = self
             .conn
             .prepare(
@@ -148,27 +197,36 @@ impl Store {
             .map_err(sql_error)?
             .collect::<rusqlite::Result<BTreeMap<_, _>>>()
             .map_err(sql_error)?;
-        let facets = |paths: &[&str]| -> Result<Vec<String>> {
-            let sql = paths.iter().map(|path| format!("SELECT value FROM clip_privacy,json_each(metadata,'$.{path}') WHERE type='text'")).collect::<Vec<_>>().join(" UNION ");
-            let mut statement = self
-                .conn
-                .prepare(&format!(
-                    "SELECT DISTINCT value FROM ({sql}) ORDER BY value"
-                ))
-                .map_err(sql_error)?;
-            let values = statement
-                .query_map([], |row| row.get(0))
-                .map_err(sql_error)?
-                .collect::<rusqlite::Result<Vec<_>>>()
-                .map_err(sql_error)?;
-            Ok(values)
-        };
+
+        let mut sources = BTreeSet::new();
+        let mut hosts = BTreeSet::new();
+        let mut tags = BTreeSet::new();
+        let mut statement = self
+            .conn
+            .prepare(
+                "SELECT metadata FROM clip_privacy WHERE metadata IS NOT NULL AND metadata<>'{}'",
+            )
+            .map_err(sql_error)?;
+        let mut rows = statement.query([]).map_err(sql_error)?;
+        while let Some(row) = rows.next().map_err(sql_error)? {
+            let raw: String = row.get(0).map_err(sql_error)?;
+            if let Ok(serde_json::Value::Object(map)) = serde_json::from_str(&raw) {
+                collect_json_strings(map.get("linkSources"), &mut sources);
+                collect_json_strings(map.get("originSources"), &mut sources);
+                collect_json_strings(map.get("linkHosts"), &mut hosts);
+                collect_json_strings(map.get("originHosts"), &mut hosts);
+                collect_json_strings(map.get("manualTags"), &mut tags);
+                collect_json_strings(map.get("ruleTags"), &mut tags);
+                collect_json_strings(map.get("appTags"), &mut tags);
+            }
+        }
+
         Ok(HistoryGlobal {
             counts,
             group_counts,
-            sources: facets(&["linkSources", "originSources"])?,
-            hosts: facets(&["linkHosts", "originHosts"])?,
-            tags: facets(&["manualTags", "ruleTags", "appTags"])?,
+            sources: sources.into_iter().collect(),
+            hosts: hosts.into_iter().collect(),
+            tags: tags.into_iter().collect(),
         })
     }
 }

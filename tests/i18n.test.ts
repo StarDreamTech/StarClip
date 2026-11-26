@@ -2,7 +2,8 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { errorText, formatNumber, hasTranslation, locale, relativeTime, resolveLocale, setLocale, t } from '../src/i18n/index.ts';
+import { ensureLocaleLoaded, errorText, formatNumber, hasTranslation, locale, relativeTime, resolveLocale, setLocale, t } from '../src/i18n/index.ts';
+import { enModules } from '../src/i18n/en-bundle.ts';
 import { appearancePresets, gradientDirections } from '../src/appearance.ts';
 import { sourceNames } from '../src/privacy.ts';
 import { growthCatalog, growthSlots } from '../src/starpet-growth.ts';
@@ -13,7 +14,21 @@ import { defaultCodeCardStyle } from '../src/code-card.ts';
 import shareCatalog from '../src/product-share-catalog.json' with { type: 'json' };
 import paperCatalog from '../public/handwriting-papers/catalog.json' with { type: 'json' };
 
+test.before(async () => { await ensureLocaleLoaded('en-US'); });
 test.afterEach(() => setLocale('zh-CN', false));
+
+test('English dictionary modules contain no duplicate keys across files', () => {
+  const seen = new Map<string, string>();
+  const duplicates: string[] = [];
+  for (const [moduleName, entries] of Object.entries(enModules)) {
+    for (const key of Object.keys(entries)) {
+      const existing = seen.get(key);
+      if (existing) duplicates.push(`${key} (${existing} vs ${moduleName})`);
+      else seen.set(key, moduleName);
+    }
+  }
+  assert.deepEqual(duplicates, [], `duplicate i18n keys: ${duplicates.join(' | ')}`);
+});
 
 test('Chinese is the source language; English uses the catalog with interpolation and plurals', () => {
   setLocale('zh-CN', false);

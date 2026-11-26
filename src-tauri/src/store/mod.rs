@@ -574,6 +574,7 @@ const CLIP_SELECT: &str = "SELECT c.id,c.content,c.title,c.kind,c.pinned,c.group
 pub struct Store {
     conn: Connection,
     history_global_cache: std::cell::RefCell<Option<history_cache::CachedHistoryGlobal>>,
+    ignored_changes: std::cell::Cell<u64>,
     #[cfg(test)]
     history_global_queries: std::cell::Cell<u64>,
 }

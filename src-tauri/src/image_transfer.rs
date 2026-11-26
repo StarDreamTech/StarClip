@@ -173,8 +173,12 @@ pub(crate) fn stage(store: &Store, root: &Path, ids: &[i64], allow_private: bool
             .map_err(|_| "无法完成图片导出，请检查权限与磁盘空间。")?;
         let paths = paths
             .iter()
-            .map(|p| published.join(p.file_name().unwrap()))
-            .collect();
+            .map(|p| {
+                p.file_name()
+                    .map(|name| published.join(name))
+                    .ok_or_else(|| "图片导出文件名无效。".to_string())
+            })
+            .collect::<Result<Vec<_>>>()?;
         Ok(Batch {
             token,
             ids: ids.to_vec(),

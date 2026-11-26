@@ -37,26 +37,21 @@ pub(super) fn write_clipboard(context: &Context, content: ClipboardWrite) -> Res
     let Reader {
         clipboard, capture, ..
     } = &mut *reader;
+    let clipboard = clipboard
+        .as_mut()
+        .ok_or_else(|| "无法访问剪贴板。".to_string())?;
     write_and_suppress(capture, key, || match content {
         ClipboardWrite::Text(text) => clipboard
-            .as_mut()
-            .unwrap()
             .set_text(text)
             .map_err(|e| format!("复制失败：{e}")),
         ClipboardWrite::Html(html, text) => clipboard
-            .as_mut()
-            .unwrap()
             .set_html(html, Some(text))
             .map_err(|e| format!("复制失败：{e}")),
         ClipboardWrite::Files(paths) => clipboard
-            .as_mut()
-            .unwrap()
             .set()
             .file_list(&paths)
             .map_err(|e| format!("文件复制失败：{e}")),
         ClipboardWrite::Image((width, height, rgba), _) => clipboard
-            .as_mut()
-            .unwrap()
             .set_image(ImageData {
                 width: width as usize,
                 height: height as usize,
@@ -84,15 +79,15 @@ pub(super) fn set_clipboard_error(app: &AppHandle, context: &Context, error: Opt
 pub(super) fn clipboard_sequence() -> Option<u64> {
     #[cfg(target_os = "macos")]
     {
-        return objc2::rc::autoreleasepool(|_| {
+        objc2::rc::autoreleasepool(|_| {
             Some(objc2_app_kit::NSPasteboard::generalPasteboard().changeCount() as u64)
-        });
+        })
     }
     #[cfg(target_os = "windows")]
     {
         let sequence =
             unsafe { windows_sys::Win32::System::DataExchange::GetClipboardSequenceNumber() };
-        return (sequence != 0).then_some(sequence as u64);
+        (sequence != 0).then_some(sequence as u64)
     }
     #[cfg(not(any(target_os = "macos", target_os = "windows")))]
     {
@@ -310,7 +305,11 @@ pub(super) fn monitor(app: AppHandle, context: Arc<Context>) {
                         reader.clipboard =
                             Some(Clipboard::new().map_err(|e| format!("无法访问剪贴板：{e}"))?);
                     }
-                    let raw = match read_raw_clipboard(reader.clipboard.as_mut().unwrap()) {
+                    let clipboard = reader
+                        .clipboard
+                        .as_mut()
+                        .ok_or_else(|| "无法访问剪贴板。".to_string())?;
+                    let raw = match read_raw_clipboard(clipboard) {
                         Ok(raw) => raw,
                         Err(ReadFailure::Invalid(error)) => {
                             reader.capture.skip_invalid(sequence);
@@ -410,8 +409,13 @@ pub(super) fn monitor(app: AppHandle, context: Arc<Context>) {
                                 if png.len() < 24 {
                                     return Ok(false);
                                 }
-                                let width = u32::from_be_bytes(png[16..20].try_into().unwrap());
-                                let height = u32::from_be_bytes(png[20..24].try_into().unwrap());
+                                let (Ok(w), Ok(h)) =
+                                    (png[16..20].try_into(), png[20..24].try_into())
+                                else {
+                                    return Ok(false);
+                                };
+                                let width = u32::from_be_bytes(w);
+                                let height = u32::from_be_bytes(h);
                                 image.matches_png(width, height, png)
                             })
                             .transpose()?

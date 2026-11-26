@@ -44,14 +44,16 @@ impl Store {
         preferences: &WindowStartupPreferences,
     ) -> Result<()> {
         let json = serde_json::to_string(preferences).map_err(|error| error.to_string())?;
-        self.conn
-            .execute(
-                "INSERT INTO preferences(key,value) VALUES('window_startup_v1',?1)
-                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                [json],
-            )
-            .map_err(sql_error)?;
-        Ok(())
+        self.execute_non_history_write(|| {
+            self.conn
+                .execute(
+                    "INSERT INTO preferences(key,value) VALUES('window_startup_v1',?1)
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [json],
+                )
+                .map_err(sql_error)?;
+            Ok(())
+        })
     }
 
     pub fn telemetry_preferences(&self) -> Result<TelemetryPreferences> {
@@ -104,11 +106,13 @@ impl Store {
             .filter(|revision| *revision <= MAX_REVISION)
             .ok_or("统计偏好修订已达上限。")?;
         let json = serde_json::to_string(&preferences).map_err(|error| error.to_string())?;
-        self.conn.execute(
-            "INSERT INTO preferences(key,value) VALUES('telemetry_preferences_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-            [json],
-        ).map_err(sql_error)?;
-        Ok(preferences)
+        self.execute_non_history_write(|| {
+            self.conn.execute(
+                "INSERT INTO preferences(key,value) VALUES('telemetry_preferences_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                [json],
+            ).map_err(sql_error)?;
+            Ok(preferences)
+        })
     }
 
     pub fn update_preferences(&self) -> Result<UpdatePreferences> {
@@ -139,14 +143,16 @@ impl Store {
             .filter(|revision| *revision <= MAX_REVISION)
             .ok_or("更新偏好修订已达上限。")?;
         let json = serde_json::to_string(preferences).map_err(|error| error.to_string())?;
-        self.conn
-            .execute(
-                "INSERT INTO preferences(key,value) VALUES('update_preferences_v1',?1)
-                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                [json],
-            )
-            .map_err(sql_error)?;
-        Ok(())
+        self.execute_non_history_write(|| {
+            self.conn
+                .execute(
+                    "INSERT INTO preferences(key,value) VALUES('update_preferences_v1',?1)
+                     ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [json],
+                )
+                .map_err(sql_error)?;
+            Ok(())
+        })
     }
 
     pub fn set_auto_update_check(&self, enabled: bool) -> Result<UpdatePreferences> {
@@ -205,14 +211,16 @@ impl Store {
 
     pub fn complete_onboarding(&self) -> Result<()> {
         // This marker must not run save_settings, pruning, or clipboard transitions.
-        self.conn
-            .execute(
-                "INSERT INTO preferences(key,value) VALUES('onboarding_v1','true')
+        self.execute_non_history_write(|| {
+            self.conn
+                .execute(
+                    "INSERT INTO preferences(key,value) VALUES('onboarding_v1','true')
             ON CONFLICT(key) DO UPDATE SET value='true'",
-                [],
-            )
-            .map_err(sql_error)?;
-        Ok(())
+                    [],
+                )
+                .map_err(sql_error)?;
+            Ok(())
+        })
     }
 
     pub fn appearance(&self) -> Result<Appearance> {
@@ -241,16 +249,18 @@ impl Store {
         change: impl FnOnce(&Appearance) -> Result<Appearance>,
     ) -> Result<Appearance> {
         // Appearance updates never save ordinary settings, run retention or award growth.
-        let tx = self.conn.unchecked_transaction().map_err(sql_error)?;
-        let old = self.appearance()?;
-        let next = change(&old)?;
-        next.validate()?;
-        if next != old {
-            let json = serde_json::to_string(&next).map_err(|_| "无法保存自定义外观。")?;
-            tx.execute("INSERT INTO preferences(key,value) VALUES('appearance_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [json]).map_err(sql_error)?;
-        }
-        tx.commit().map_err(sql_error)?;
-        Ok(next)
+        self.execute_non_history_write(|| {
+            let tx = self.conn.unchecked_transaction().map_err(sql_error)?;
+            let old = self.appearance()?;
+            let next = change(&old)?;
+            next.validate()?;
+            if next != old {
+                let json = serde_json::to_string(&next).map_err(|_| "无法保存自定义外观。")?;
+                tx.execute("INSERT INTO preferences(key,value) VALUES('appearance_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [json]).map_err(sql_error)?;
+            }
+            tx.commit().map_err(sql_error)?;
+            Ok(next)
+        })
     }
 
     pub fn save_appearance(&self, patch: &serde_json::Value) -> Result<Appearance> {
@@ -323,21 +333,23 @@ impl Store {
         today: &str,
     ) -> Result<GrowthState> {
         // One transaction contains read, validation and write; unrelated preferences and clips are untouched.
-        let tx = self.conn.unchecked_transaction().map_err(sql_error)?;
-        let old = self.starpet_growth()?;
-        let mut state = old.clone();
-        change.apply(&mut state, today)?;
-        if state != old {
-            state.revision = old
-                .revision
-                .checked_add(1)
-                .filter(|r| *r <= MAX_REVISION)
-                .ok_or("成长存档修订次数超限，未修改数据。")?;
-            let json = serde_json::to_string(&state).map_err(|_| "无法保存星伴成长数据。")?;
-            tx.execute("INSERT INTO preferences(key,value) VALUES('starpet_growth_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [json]).map_err(sql_error)?;
-        }
-        tx.commit().map_err(sql_error)?;
-        Ok(state)
+        self.execute_non_history_write(|| {
+            let tx = self.conn.unchecked_transaction().map_err(sql_error)?;
+            let old = self.starpet_growth()?;
+            let mut state = old.clone();
+            change.apply(&mut state, today)?;
+            if state != old {
+                state.revision = old
+                    .revision
+                    .checked_add(1)
+                    .filter(|r| *r <= MAX_REVISION)
+                    .ok_or("成长存档修订次数超限，未修改数据。")?;
+                let json = serde_json::to_string(&state).map_err(|_| "无法保存星伴成长数据。")?;
+                tx.execute("INSERT INTO preferences(key,value) VALUES('starpet_growth_v1',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [json]).map_err(sql_error)?;
+            }
+            tx.commit().map_err(sql_error)?;
+            Ok(state)
+        })
     }
 
     pub fn save_starpet_preferences(&self, preferences: &StarpetPreferences) -> Result<()> {
@@ -346,43 +358,47 @@ impl Store {
         let mut preferences = preferences.clone();
         preferences.color.make_ascii_uppercase();
         let json = serde_json::to_string(&preferences).map_err(|e| e.to_string())?;
-        self.conn
-            .execute(
-                "INSERT INTO preferences(key,value) VALUES('starpet_v1',?1)
-             ON CONFLICT(key) DO UPDATE SET value=excluded.value",
-                [json],
-            )
-            .map_err(sql_error)?;
-        Ok(())
+        self.execute_non_history_write(|| {
+            self.conn
+                .execute(
+                    "INSERT INTO preferences(key,value) VALUES('starpet_v1',?1)
+                 ON CONFLICT(key) DO UPDATE SET value=excluded.value",
+                    [json],
+                )
+                .map_err(sql_error)?;
+            Ok(())
+        })
     }
 
     pub fn set_theme(&self, theme: &str) -> Result<Settings> {
         if !["dark", "light", "white", "forest", "rose", "system"].contains(&theme) {
             return Err("不支持的应用主题。".into());
         }
-        let tx = self.conn.unchecked_transaction().map_err(sql_error)?;
-        let stored: Option<String> = tx
-            .query_row(
-                "SELECT value FROM preferences WHERE key='settings'",
-                [],
-                |row| row.get(0),
-            )
-            .optional()
-            .map_err(sql_error)?;
-        let mut json: serde_json::Value = match stored {
-            Some(json) => serde_json::from_str(&json).map_err(|_| "偏好设置损坏，主题未保存。")?,
-            None => serde_json::to_value(Settings::default()).map_err(|e| e.to_string())?,
-        };
-        json.as_object_mut()
-            .ok_or("偏好设置损坏，主题未保存。")?
-            .insert("theme".into(), theme.into());
-        let settings: Settings =
-            serde_json::from_value(json.clone()).map_err(|_| "偏好设置损坏，主题未保存。")?;
-        settings.validate()?;
-        // Preserve every other stored preference, including older missing fields and future keys.
-        tx.execute("INSERT INTO preferences(key,value) VALUES('settings',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [json.to_string()]).map_err(sql_error)?;
-        tx.commit().map_err(sql_error)?;
-        Ok(settings)
+        self.execute_non_history_write(|| {
+            let tx = self.conn.unchecked_transaction().map_err(sql_error)?;
+            let stored: Option<String> = tx
+                .query_row(
+                    "SELECT value FROM preferences WHERE key='settings'",
+                    [],
+                    |row| row.get(0),
+                )
+                .optional()
+                .map_err(sql_error)?;
+            let mut json: serde_json::Value = match stored {
+                Some(json) => serde_json::from_str(&json).map_err(|_| "偏好设置损坏，主题未保存。")?,
+                None => serde_json::to_value(Settings::default()).map_err(|e| e.to_string())?,
+            };
+            json.as_object_mut()
+                .ok_or("偏好设置损坏，主题未保存。")?
+                .insert("theme".into(), theme.into());
+            let settings: Settings =
+                serde_json::from_value(json.clone()).map_err(|_| "偏好设置损坏，主题未保存。")?;
+            settings.validate()?;
+            // Preserve every other stored preference, including older missing fields and future keys.
+            tx.execute("INSERT INTO preferences(key,value) VALUES('settings',?1) ON CONFLICT(key) DO UPDATE SET value=excluded.value", [json.to_string()]).map_err(sql_error)?;
+            tx.commit().map_err(sql_error)?;
+            Ok(settings)
+        })
     }
 
     pub fn save_settings(&self, settings: &Settings) -> Result<()> {

@@ -486,3 +486,35 @@ fn history_cache_returns_complete_large_facets_without_retaining_them() {
         );
     }
 }
+
+#[test]
+fn non_history_preference_writes_preserve_history_global_cache() {
+    let store = memory_store();
+    store.add("原创偏好缓存测试", "标题", None).unwrap();
+    let warm = rebuilt_page(&store);
+    assert_eq!(warm.history.counts["all"], 1);
+    let before_queries = store.history_global_query_count();
+
+    store.set_theme("light").unwrap();
+    store.set_auto_update_check(false).unwrap();
+    store.complete_onboarding().unwrap();
+    store
+        .save_starpet_preferences(&StarpetPreferences::default())
+        .unwrap();
+    store
+        .set_telemetry_mode(crate::telemetry::TelemetryMode::Off)
+        .unwrap();
+
+    let after_prefs = page(&store);
+    assert_eq!(
+        store.history_global_query_count(),
+        before_queries,
+        "unrelated preference writes must not invalidate global history facets"
+    );
+    assert_eq!(global_fields(&after_prefs), global_fields(&warm));
+
+    // A real history write still invalidates the cache immediately.
+    store.add("新增记录触发失效", "标题2", None).unwrap();
+    let refreshed = rebuilt_page(&store);
+    assert_eq!(refreshed.history.counts["all"], 2);
+}

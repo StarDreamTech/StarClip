@@ -97,13 +97,12 @@ pub(super) async fn export_image_files(
         let root = folder.into_path().map_err(|_| "请选择本地文件夹。")?;
         let _write = write_guard(&context)?;
         let batch = lock(&context.store)?.stage_images(&root, &ids, allow_private)?;
-        Ok(Some(
-            batch.paths[0]
-                .parent()
-                .unwrap()
-                .to_string_lossy()
-                .into_owned(),
-        ))
+        let parent = batch
+            .paths
+            .first()
+            .and_then(|path| path.parent())
+            .ok_or("图片导出目录无效。")?;
+        Ok(Some(parent.to_string_lossy().into_owned()))
     })
     .await
     .map_err(|_| "图片导出失败，请重试。".to_string())?

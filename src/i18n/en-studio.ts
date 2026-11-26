@@ -1,4 +1,4 @@
-export const enMore2: Record<string, string> = {
+export const enStudio: Record<string, string> = {
   "图片格式不可用": "Unsupported image format",
   "图片无法显示，请重试。": "The image could not be displayed. Try again.",
   "图片暂不可用": "Image unavailable",
@@ -132,7 +132,6 @@ export const enMore2: Record<string, string> = {
   "确认后使用目标目录中的历史、分组与偏好，随后重启。": "Confirming uses the history, groups and preferences in the target folder, then restarts.",
   "不会合并当前记录": "Current clips are not merged",
   "，当前目录保留，尚未保存的偏好不会自动保存。": ". The current folder is kept; unsaved preferences are not saved automatically.",
-  "正在处理…": "Working…",
   "确认迁移并重启": "Migrate and restart",
   "确认切换并重启": "Switch and restart",
   "数据以明文保存在本机所选目录，星笺不会上传到云端。": "Data is stored unencrypted in the selected local folder; Starclip never uploads it.",

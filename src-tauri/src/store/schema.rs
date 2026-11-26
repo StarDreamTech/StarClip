@@ -360,6 +360,7 @@ impl Store {
             let store = Self {
                 conn,
                 history_global_cache: Default::default(),
+                ignored_changes: Default::default(),
                 #[cfg(test)]
                 history_global_queries: Default::default(),
             };
@@ -545,6 +546,7 @@ impl Store {
         Ok(Self {
             conn,
             history_global_cache: Default::default(),
+            ignored_changes: Default::default(),
             #[cfg(test)]
             history_global_queries: Default::default(),
         })

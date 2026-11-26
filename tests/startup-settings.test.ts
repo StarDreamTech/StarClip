@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import ts from 'typescript';
 import { compileScript, parse } from '@vue/compiler-sfc';
 import { createRenderer, markRaw, nextTick } from 'vue';
-import { setLocale } from '../src/i18n/index.ts';
+import { ensureLocaleLoaded, setLocale } from '../src/i18n/index.ts';
 import type { StartupPreferences, StartupPreferencesPatch } from '../src/startup-api.ts';
 
 // Exercise the real component with fixed state, without a WebView or login-item changes.
@@ -139,6 +139,7 @@ test('browser and parent-disabled controls remain inactive, including direct han
 });
 
 test('English startup controls, descriptions and save feedback are translated', async () => {
+  await ensureLocaleLoaded('en-US');
   setLocale('en-US', false);
   const mock = nativeMock(); const { root, app } = await mount(mock);
   assert.equal(settingSwitch(root, 'Launch automatically at login').props['aria-checked'], false);

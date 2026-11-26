@@ -35,22 +35,34 @@ impl Store {
         }
         let search = query.query.trim().to_lowercase();
         if !search.is_empty() {
-            let tags = if query.ai_eligible {
-                " || COALESCE(json_extract(p.metadata,'$.manualTags'),'') || COALESCE(json_extract(p.metadata,'$.ruleTags'),'') || COALESCE(json_extract(p.metadata,'$.appTags'),'')"
+            let phrase = crate::search_index::match_phrase(&search);
+            if query.ai_eligible {
+                let tag_expr = "COALESCE(json_extract(p.metadata,'$.manualTags'),'') || COALESCE(json_extract(p.metadata,'$.ruleTags'),'') || COALESCE(json_extract(p.metadata,'$.appTags'),'')";
+                if let Some(phrase) = phrase {
+                    // AI 搜索同时匹配正文与标签：先用 FTS 过滤正文候选，或直接匹配标签，避免无命中记录拼接大正文。
+                    predicates.push(format!(
+                        "(c.id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?) OR starclip_contains({tag_expr},?))"
+                    ));
+                    values.push(phrase.into());
+                    values.push(search.clone().into());
+                }
+                predicates.push(format!(
+                    "starclip_contains(c.title || char(10) || CASE WHEN c.kind='image' THEN '' ELSE c.content END || {tag_expr},?)"
+                ));
+                values.push(search.into());
             } else {
-                ""
-            };
-            // 标签只在 AI 授权列表里参与搜索，不在索引中；其余情况先用 trigram 索引缩小候选。
-            if let Some(phrase) = (!query.ai_eligible)
-                .then(|| crate::search_index::match_phrase(&search))
-                .flatten()
-            {
-                predicates
-                    .push("c.id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?)".into());
-                values.push(phrase.into());
+                if let Some(phrase) = phrase {
+                    predicates.push(
+                        "c.id IN (SELECT rowid FROM clips_fts WHERE clips_fts MATCH ?)".into(),
+                    );
+                    values.push(phrase.into());
+                }
+                predicates.push(
+                    "starclip_contains(c.title || char(10) || CASE WHEN c.kind='image' THEN '' ELSE c.content END,?)"
+                        .into(),
+                );
+                values.push(search.into());
             }
-            predicates.push(format!("starclip_contains(c.title || char(10) || CASE WHEN c.kind='image' THEN '' ELSE c.content END{tags},?)"));
-            values.push(search.into());
         }
         if !query.sources.is_empty() {
             let mut sources = vec![];

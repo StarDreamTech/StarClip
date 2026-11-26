@@ -569,18 +569,16 @@ pub fn scan_with_origin(
         cursor = offset + raw.len();
         let candidate = raw.trim_end_matches(['.', ',', ';', '!', '?']);
         match Url::parse(candidate) {
-            Ok(url) if matches!(url.scheme(), "http" | "https") && url.host_str().is_some() => {
-                let host = url
-                    .host_str()
-                    .unwrap()
-                    .trim_end_matches('.')
-                    .to_ascii_lowercase();
-                if let Some(source) = source(&host) {
-                    result.sources.push(source.into());
-                }
-                result.hosts.push(host);
-                if url_credentials(&url) {
-                    result.reasons.push("链接包含凭据".into());
+            Ok(url) if matches!(url.scheme(), "http" | "https") => {
+                if let Some(raw_host) = url.host_str() {
+                    let host = raw_host.trim_end_matches('.').to_ascii_lowercase();
+                    if let Some(source) = source(&host) {
+                        result.sources.push(source.into());
+                    }
+                    result.hosts.push(host);
+                    if url_credentials(&url) {
+                        result.reasons.push("链接包含凭据".into());
+                    }
                 }
             }
             _ => {

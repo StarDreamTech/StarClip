@@ -1,6 +1,5 @@
-// Remaining UI messages. Kept in its own module so the main catalog stays easy
-// to scan; index.ts merges both catalogs before lookup.
-export const enMore: Record<string, string> = {
+// AI access and custom appearance UI messages.
+export const enAiAppearance: Record<string, string> = {
   "我的 AI 助手": "My AI assistant",
   "标题": "Title",
   "正文": "Content",
@@ -41,7 +40,6 @@ export const enMore: Record<string, string> = {
   "筛选可授权记录": "Filter grantable clips",
   "筛选授权分组": "Filter by constellation",
   "选择当前结果": "Select current results",
-  "清空选择": "Clear selection",
   "已选 {count} / {max}": "Selected {count} / {max}",
   "未命名记录": "Untitled clip",
   "记录 #{id}": "Clip #{id}",
@@ -189,7 +187,6 @@ export const enMore: Record<string, string> = {
   "片段标题": "Clip title",
   "类型": "Type",
   "内容占用": "Content size",
-  "最近更新": "Last updated",
   "列出前 {shown} 条，确认后将清理全部 {total} 条匹配记录。": "Showing the first {shown}; confirming will clean up all {total} matching clips.",
   "没有符合条件的可删除记录。仍可单独整理数据库中的可复用空间。": "No deletable clips match. You can still compact reusable space in the database.",
   "同时整理数据库文件": "Also compact the database file",

@@ -64,6 +64,7 @@ impl Store {
             .map(|(clip, _)| clip)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn insert_bundle(
         &self,
         text: &str,
@@ -99,7 +100,7 @@ impl Store {
         let tx = &self.conn;
         let ids = images
             .iter()
-            .map(|image| put_asset(&tx, image))
+            .map(|image| put_asset(tx, image))
             .collect::<Result<Vec<_>>>()?;
         // The digest is only a bucket. Exact text and ordered asset identities decide equality.
         let mut existing = None;
@@ -112,7 +113,7 @@ impl Store {
                 .map_err(sql_error)?;
             for row in rows {
                 let (id, content) = row.map_err(sql_error)?;
-                if content == text && item_ids(&tx, id)? == ids {
+                if content == text && item_ids(tx, id)? == ids {
                     existing = Some(id);
                     break;
                 }
@@ -140,9 +141,9 @@ impl Store {
             id
         };
         if let Some(context) = capture {
-            Self::apply_capture(&tx, id, context)?;
+            Self::apply_capture(tx, id, context)?;
             clip_stats::record(
-                &tx,
+                tx,
                 timestamp,
                 "image",
                 if existing.is_some() {
@@ -169,13 +170,13 @@ impl Store {
             }
         }
         if private {
-            let mut metadata = read_metadata(&tx, id)?;
+            let mut metadata = read_metadata(tx, id)?;
             metadata.privacy_manual = true;
-            put_metadata(&tx, id, &metadata)?;
+            put_metadata(tx, id, &metadata)?;
         }
-        scan_clip(&tx, id, &self.privacy_rules()?, false)?;
+        scan_clip(tx, id, &self.privacy_rules()?, false)?;
         if capture.is_some() {
-            Self::prune_with_settings(&tx, &self.settings()?, timestamp)?;
+            Self::prune_with_settings(tx, &self.settings()?, timestamp)?;
         }
         let clip = self.clip(id)?;
         if let Some(tx) = transaction {

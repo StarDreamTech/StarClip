@@ -5,32 +5,20 @@ import type { AppState, Clip, HistoryQuery, Settings } from './types'
 import Icon from './components/Icon.vue'
 import ClipImage from './components/ClipImage.vue'
 import ClipGallery from './components/ClipGallery.vue'
-import ImageViewer from './components/ImageViewer.vue'
 import ImageBatchBar from './components/ImageBatchBar.vue'
-import { selectClip } from './clip-selection'
+import { useBusyScopes } from './composables/useBusyScopes'
+import { useImageSelection } from './composables/useImageSelection'
+import { useFavoriteDrag } from './composables/useFavoriteDrag'
 import { loadNavigation, saveNavigation } from './navigation'
 import type { SettingsTab } from './navigation'
 import HistoryPagination from './components/HistoryPagination.vue'
 import StartupScreen from './components/StartupScreen.vue'
-import DataSettings from './components/DataSettings.vue'
-import UpdateSettings from './components/UpdateSettings.vue'
-import StartupSettings from './components/StartupSettings.vue'
 import { quitStarclip } from './startup-api'
 import UpdateNotice from './components/UpdateNotice.vue'
-import ProductShare from './components/ProductShare.vue'
 import { appVersion } from './update-api'
-import CleanupPanel from './components/CleanupPanel.vue'
 import StickerScene from './components/StickerScene.vue'
-import OnboardingGuide from './components/OnboardingGuide.vue'
 import UiSelect from './components/UiSelect.vue'
-import StarPetSettings from './components/StarPetSettings.vue'
-import AppearanceSettings from './components/AppearanceSettings.vue'
-import PrivacyRules from './components/PrivacyRules.vue'
-import TelemetrySettings from './components/TelemetrySettings.vue'
-import ClipStatsPanel from './components/ClipStatsPanel.vue'
 import { recordStudioOpened } from './telemetry-api'
-import ClipPrivacy from './components/ClipPrivacy.vue'
-import AiSettings from './components/AiSettings.vue'
 import { privacyReasonExplanation, protectedClip, sourceNames } from './privacy'
 import { applyAppearanceToRoot, defaultAppearance } from './appearance'
 import type { Appearance } from './appearance'
@@ -40,54 +28,49 @@ import type { ThemeOrigin } from './theme'
 import { applyLanguage, errorText, formatDate, formatNumber, locale, relativeTime as formatRelativeTime, t } from './i18n'
 
 const CodeStudio = defineAsyncComponent(() => import('./components/CodeStudio.vue'))
+const ImageViewer = defineAsyncComponent(() => import('./components/ImageViewer.vue'))
+const DataSettings = defineAsyncComponent(() => import('./components/DataSettings.vue'))
+const UpdateSettings = defineAsyncComponent(() => import('./components/UpdateSettings.vue'))
+const StartupSettings = defineAsyncComponent(() => import('./components/StartupSettings.vue'))
+const ProductShare = defineAsyncComponent(() => import('./components/ProductShare.vue'))
+const CleanupPanel = defineAsyncComponent(() => import('./components/CleanupPanel.vue'))
+const OnboardingGuide = defineAsyncComponent(() => import('./components/OnboardingGuide.vue'))
+const StarPetSettings = defineAsyncComponent(() => import('./components/StarPetSettings.vue'))
+const AppearanceSettings = defineAsyncComponent(() => import('./components/AppearanceSettings.vue'))
+const PrivacyRules = defineAsyncComponent(() => import('./components/PrivacyRules.vue'))
+const TelemetrySettings = defineAsyncComponent(() => import('./components/TelemetrySettings.vue'))
+const ClipStatsPanel = defineAsyncComponent(() => import('./components/ClipStatsPanel.vue'))
+const ClipPrivacy = defineAsyncComponent(() => import('./components/ClipPrivacy.vue'))
+const AiSettings = defineAsyncComponent(() => import('./components/AiSettings.vue'))
 
 const state = ref<AppState>({ onboardingCompleted: true, clips: [], groups: [], settings: { paused: true, pauseRevision: 0, uiLanguage: 'system', theme: 'dark', layout: 'grid', maxHistory: 0, retentionDays: 0, alwaysOnTop: false, hideAfterCopy: true, showStartup: true, stickerPack: 'auto', shortcut: 'CommandOrControl+Shift+V' }, clipboardError: null, shortcutError: null, windowError: null })
 const loading = ref(true)
 const windowReady = ref(false)
 const busy = ref(false)
-const dataOperationBusy = ref(false)
-const starPetBusy = ref(false)
-const updateBusy = ref(false)
-const startupBusy = ref(false)
+const busyScopes = useBusyScopes()
+const dataOperationBusy = busyScopes.scopeRef('dataOperation')
+const starPetBusy = busyScopes.scopeRef('starPet')
+const updateBusy = busyScopes.scopeRef('update')
+const startupBusy = busyScopes.scopeRef('startup')
 const updateNoticeBusy = ref(false)
-const shareBusy = ref(false)
-const imageBatchBusy = ref(false)
-const imageSelectMode = ref(false), imageSelection = ref<number[]>([])
-let imageAnchor: number | null = null
-const pageImageIds = computed(() => visible.value.filter(c => ['image','bundle'].includes(c.kind)).map(c => c.id))
-function clearImageSelection() { imageSelection.value = []; imageAnchor = null }
-function finishImageSelection() { imageSelectMode.value = false; clearImageSelection() }
-function chooseImage(clip: Clip, range = false) {
-  if (!imageSelectMode.value || !['image','bundle'].includes(clip.kind) || imageBatchBusy.value) return
-  try { imageSelection.value = selectClip(imageSelection.value, clip.id, pageImageIds.value, imageAnchor, range); imageAnchor = clip.id }
-  catch (error) { notify(errorText(error), true) }
-}
-function checkImage(clip: Clip, event: MouseEvent) {
-  chooseImage(clip, event.shiftKey)
-  const input = event.currentTarget as HTMLInputElement
-  input.checked = imageSelection.value.includes(clip.id)
-}
-function selectPageImages() {
-  const ids = [...new Set([...imageSelection.value, ...pageImageIds.value])]
-  if (ids.length > 50) { notify(t('每批最多选择 50 张图片。'), true); return }
-  imageSelection.value = ids
-}
+const shareBusy = busyScopes.scopeRef('share')
+const imageBatchBusy = busyScopes.scopeRef('imageBatch')
 const appearance = ref(defaultAppearance())
-const appearanceBusy = ref(false)
-const privacyBusy = ref(false)
-const telemetryBusy = ref(false)
-const statsBusy = ref(false)
+const appearanceBusy = busyScopes.scopeRef('appearance')
+const privacyBusy = busyScopes.scopeRef('privacy')
+const telemetryBusy = busyScopes.scopeRef('telemetry')
+const statsBusy = busyScopes.scopeRef('stats')
 const statsRevision = ref(0)
-const aiBusy = ref(false)
-const clipPrivacyBusy = ref(false)
-const clipDetailsLoading = ref(false), clipDetailsError = ref('')
+const aiBusy = busyScopes.scopeRef('ai')
+const clipPrivacyBusy = busyScopes.scopeRef('clipPrivacy')
+const clipDetailsLoading = busyScopes.scopeRef('clipDetails'), clipDetailsError = ref('')
 let clipDetailVersion = 0
 const clipDetailsBlocked = computed(() => clipDetailsLoading.value || !!clipDetailsError.value)
 const rulesRevision = ref(0)
 const privateRevealed = ref(false)
 const appearanceLoading = ref(true)
 const appearanceError = ref('')
-const dataBusy = computed(() => imageBatchBusy.value || startupBusy.value || dataOperationBusy.value || starPetBusy.value || updateBusy.value || shareBusy.value || appearanceBusy.value || privacyBusy.value || telemetryBusy.value || statsBusy.value || aiBusy.value || clipPrivacyBusy.value || clipDetailsLoading.value)
+const dataBusy = busyScopes.anyBusy
 const customSticker = computed(() => appearance.value.stickerEnabled ? appearance.value.stickerDataUrl : null)
 const startupVisible = ref(false)
 const firstGuidePending = ref(false)
@@ -108,7 +91,6 @@ const favoriteSortChoices = computed(() => [
   { value: 'updated', label: t('最近更新') }, { value: 'created', label: t('最近收录') },
   { value: 'copies', label: t('复制次数最多') }, { value: 'manual', label: t('自定义顺序') },
 ])
-const favoriteDrag = ref<{ id: number; top: boolean; target: number | null; before: boolean; pointer: number } | null>(null)
 const query = ref('')
 const sourceFilters = ref<string[]>([])
 const hostFilter = ref('')
@@ -233,6 +215,30 @@ const visible = computed(() => historyLoading.value ? [] : state.value.clips)
 const sectionName = computed(() => navItems.value.find(n => n.key === filter.value)?.name || state.value.groups.find(g => `group-${g.id}` === filter.value)?.name || t('全部记录'))
 const currentGroup = computed(() => state.value.groups.find(g => `group-${g.id}` === filter.value))
 const selectedIndex = computed(() => visible.value.findIndex(c => c.id === selected.value))
+const {
+  imageSelectMode,
+  imageSelection,
+  pageImageIds,
+  clearImageSelection,
+  finishImageSelection,
+  chooseImage,
+  checkImage,
+  selectPageImages,
+} = useImageSelection({ visible, imageBatchBusy, notify })
+const {
+  favoriteDrag,
+  startFavoriteDrag,
+  updateFavoriteDrag,
+  finishFavoriteDrag,
+} = useFavoriteDrag({
+  visible,
+  historyScroll,
+  layout: computed(() => state.value.settings.layout === 'list' ? 'list' : 'grid'),
+  favoriteSort,
+  imageSelectMode,
+  isBusy: () => busy.value || dataBusy.value,
+  onMoveFavorite: moveFavorite,
+})
 const today = ref(Date.now())
 function scheduleMidnightTick() {
   clearTimeout(midnightTimer)
@@ -410,38 +416,6 @@ async function togglePin(clip: Clip) { await run(() => api.updateClip(clip.id, c
 async function toggleFavoriteTop(clip: Clip) { await run(() => api.setFavoriteTop(clip.id, !clip.onTop), clip.onTop ? t('已取消置顶') : t('收藏已置顶')) }
 async function moveFavorite(clip: Clip, target: number | null, before: boolean) {
   await run(() => api.moveFavorite(clip.id, target, before), t('收藏顺序已保存'))
-}
-function startFavoriteDrag(clip: Clip, event: PointerEvent) {
-  if (event.button !== 0 || busy.value || dataBusy.value || imageSelectMode.value || favoriteSort.value !== 'manual') return
-  event.preventDefault(); event.stopPropagation()
-  favoriteDrag.value = { id: clip.id, top: !!clip.onTop, target: null, before: true, pointer: event.pointerId }
-  const handle = event.currentTarget as HTMLElement
-  handle.setPointerCapture(event.pointerId)
-}
-function updateFavoriteDrag(event: PointerEvent) {
-  const drag = favoriteDrag.value
-  if (!drag || drag.pointer !== event.pointerId) return
-  const article = document.elementFromPoint(event.clientX, event.clientY)?.closest<HTMLElement>('[data-clip-id]')
-  const clip = visible.value.find(item => item.id === Number(article?.dataset.clipId))
-  drag.target = null
-  if (clip && article && clip.id !== drag.id && !!clip.onTop === drag.top) {
-    const rect = article.getBoundingClientRect()
-    drag.target = clip.id
-    drag.before = state.value.settings.layout === 'list' ? event.clientY < rect.top + rect.height / 2 : event.clientX < rect.left + rect.width / 2
-  }
-  const scroll = historyScroll.value
-  if (scroll) {
-    const rect = scroll.getBoundingClientRect()
-    if (event.clientY < rect.top + 40) scroll.scrollTop -= 20
-    if (event.clientY > rect.bottom - 40) scroll.scrollTop += 20
-  }
-}
-async function finishFavoriteDrag(event: PointerEvent) {
-  const drag = favoriteDrag.value
-  if (!drag || drag.pointer !== event.pointerId) return
-  favoriteDrag.value = null
-  const clip = visible.value.find(clip => clip.id === drag.id)
-  if (clip && drag.target !== null) await moveFavorite(clip, drag.target, drag.before)
 }
 async function toggleKept(clip: Clip) { await run(() => api.setKeepForever(clip.id, !clip.keepForever), clip.keepForever ? t('已取消永久保留') : t('已永久保留，不参与清理')) }
 async function openCleanup(event: MouseEvent) {

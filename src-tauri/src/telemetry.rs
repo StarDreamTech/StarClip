@@ -411,7 +411,7 @@ impl Telemetry {
         if !valid_hex_id(&value.install_id)
             || value
                 .created_at
-                .is_some_and(|time| time > now() || utc_day(time) < "2026-01-01".to_owned())
+                .is_some_and(|time| time > now() || utc_day(time).as_str() < "2026-01-01")
         {
             return Err("统计标识格式无效。".into());
         }
@@ -426,8 +426,9 @@ impl Telemetry {
             self.forget_install()?;
         }
         let Some([current, legacy]) = self.identity_paths() else {
-            self.identity_error = Some("未配置统计标识位置，已停止按安装统计。");
-            return Err(self.identity_error.unwrap().into());
+            let message = "未配置统计标识位置，已停止按安装统计。";
+            self.identity_error = Some(message);
+            return Err(message.into());
         };
         let loaded = (|| -> Result<InstallId> {
             let current_saved = Self::read_install(&current, false)?;
@@ -475,14 +476,14 @@ impl Telemetry {
             }
             Err(error) => {
                 self.install = None;
-                self.identity_error = Some(
-                    if error == "两套统计标识不一致，未选择或删除任何编号。" {
-                        "两套统计标识不一致，已停止按安装统计；两个文件均已保留，可显式重置编号。"
-                    } else {
-                        "统计标识未能读取、保存或清理，已停止按安装统计；请修复目录后重试。"
-                    },
-                );
-                Err(self.identity_error.unwrap().into())
+                let message = if error == "两套统计标识不一致，未选择或删除任何编号。"
+                {
+                    "两套统计标识不一致，已停止按安装统计；两个文件均已保留，可显式重置编号。"
+                } else {
+                    "统计标识未能读取、保存或清理，已停止按安装统计；请修复目录后重试。"
+                };
+                self.identity_error = Some(message);
+                Err(message.into())
             }
         }
     }
@@ -504,8 +505,9 @@ impl Telemetry {
         }
         self.revoke_pending = failed;
         if failed {
-            self.identity_error = Some("统计标识未能删除；请检查目录写入权限后重试。");
-            Err(self.identity_error.unwrap().into())
+            let message = "统计标识未能删除；请检查目录写入权限后重试。";
+            self.identity_error = Some(message);
+            Err(message.into())
         } else {
             self.identity_error = None;
             Ok(())
